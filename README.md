@@ -36,7 +36,15 @@ Each approach has its unique advantages and limitations, and this project aims t
    cd learning-in-games
    ```
 
-2. Install the required packages:
+2. Create and activate a virtual environment:
+   ```
+   python3 -m venv venv
+   source venv/bin/activate  # for Linux/macOS
+   # or
+   venv\Scripts\activate  # for Windows
+   ```
+
+3. Install the required packages:
    ```
    pip install -r requirements.txt
    ```

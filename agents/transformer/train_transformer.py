@@ -147,7 +147,7 @@ def simulate_random_game(env: IPDEnv, num_rounds: int) -> Dict:
     }
     
     # Reset environment
-    env.reset()
+    obs, _ = env.reset()
     
     # Play random actions
     for _ in range(num_rounds):
@@ -155,7 +155,7 @@ def simulate_random_game(env: IPDEnv, num_rounds: int) -> Dict:
         player_action = random.randint(0, 1)
         
         # Take step in environment
-        _, reward, _, info = env.step(player_action)
+        _, reward, terminated, truncated, info = env.step(player_action)
         
         # Record data
         if len(trajectory['actions']) == 0:

@@ -270,7 +270,7 @@ def simulate_match(env: IPDEnv, player_strategy: Strategy, opponent_strategy: Op
         env.num_rounds = num_rounds
     
     # Reset the environment
-    obs = env.reset()
+    obs, _ = env.reset()
     
     # Run the match
     done = False
@@ -281,7 +281,8 @@ def simulate_match(env: IPDEnv, player_strategy: Strategy, opponent_strategy: Op
         player_action = player_strategy.action(env.history, player_idx=0)
         
         # Take a step in the environment
-        obs, reward, done, info = env.step(player_action)
+        obs, reward, terminated, truncated, info = env.step(player_action)
+        done = terminated or truncated
         
         # Store round information
         history.append(info)

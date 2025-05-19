@@ -1,7 +1,7 @@
-import gym
+import gymnasium as gym
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional, Union
-from gym import spaces
+from gymnasium import spaces
 
 from env.strategies import Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
 
@@ -106,13 +106,17 @@ class IPDEnv(gym.Env):
         else:  # Both defect
             return self.PUNISHMENT, self.PUNISHMENT
 
-    def reset(self) -> np.ndarray:
+    def reset(self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Reset the environment for a new episode
         
         Returns:
-            Initial observation
+            Initial observation and info dict
         """
+        # Set seed if provided
+        if seed is not None:
+            self.rng = np.random.RandomState(seed)
+            
         # Reset game state
         self.current_round = 0
         self.history = []  # [(player_action, opponent_action), ...]
@@ -122,9 +126,11 @@ class IPDEnv(gym.Env):
         # Initial observation is all -1 (no actions yet)
         observation = np.ones(self.memory_size * 2, dtype=np.int8) * -1
         
-        return observation
+        info = {}
+        
+        return observation, info
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         """
         Execute one round of the game
         
@@ -132,7 +138,7 @@ class IPDEnv(gym.Env):
             action: Player's action (0=cooperate, 1=defect)
             
         Returns:
-            (observation, reward, done, info)
+            (observation, reward, terminated, truncated, info)
         """
         # Ensure action is valid
         if action not in [self.COOPERATE, self.DEFECT]:
@@ -155,7 +161,8 @@ class IPDEnv(gym.Env):
         self.current_round += 1
         
         # Check if episode is done
-        done = self.current_round >= self.num_rounds
+        terminated = self.current_round >= self.num_rounds
+        truncated = False
         
         # Prepare next observation
         observation = self._get_observation()
@@ -172,7 +179,7 @@ class IPDEnv(gym.Env):
             'opponent_strategy': self.opponent_strategy.name
         }
         
-        return observation, player_payoff, done, info
+        return observation, player_payoff, terminated, truncated, info
 
     def _get_observation(self) -> np.ndarray:
         """

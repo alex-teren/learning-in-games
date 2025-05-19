@@ -250,12 +250,13 @@ def get_cooperation_rates(model, env, n_episodes=100):
     opponent_actions = []
     
     for _ in range(n_episodes):
-        obs = env.reset()
+        obs, _ = env.reset()  # Unpack observation and info
         done = False
         
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, _, done, info = env.step(action)
+            obs, _, terminated, truncated, info = env.step(action)  # Updated step API
+            done = terminated or truncated
             
             agent_actions.append(info["player_action"])
             opponent_actions.append(info["opponent_action"])

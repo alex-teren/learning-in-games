@@ -3,7 +3,7 @@ import numpy as np
 from typing import List, Tuple, Dict, Any, Optional, Union
 from gymnasium import spaces
 
-from env.strategies import Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
+from env.strategies import Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
 
 
 class IPDEnv(gym.Env):
@@ -69,6 +69,8 @@ class IPDEnv(gym.Env):
             self.opponent_strategy = AlwaysCooperate()
         elif opponent_strategy == "always_defect":
             self.opponent_strategy = AlwaysDefect()
+        elif opponent_strategy == "pavlov":
+            self.opponent_strategy = PavlovStrategy()
         elif isinstance(opponent_strategy, Strategy):
             self.opponent_strategy = opponent_strategy
         else:

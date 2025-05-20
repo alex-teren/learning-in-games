@@ -19,6 +19,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match, PavlovStrategy
 
 
+def save_plot_and_csv(x, y, name: str, folder: str = "results"):
+    """Save PNG plot **and** matching CSV so LLM can analyse the numbers."""
+    import os, pandas as pd, matplotlib.pyplot as plt
+    os.makedirs(folder, exist_ok=True)
+    pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
+    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+
+
 def generate_trajectory_dataset(
     num_games: int = 1000,
     num_rounds: int = 10,
@@ -642,29 +651,38 @@ def plot_training_history(history: Dict, log_dir: str) -> None:
         history: Training history dictionary
         log_dir: Directory to save plots
     """
-    # Plot loss
-    plt.figure(figsize=(10, 6))
-    plt.plot(history['train_loss'], label='Training Loss')
-    plt.plot(history['val_loss'], label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f"{log_dir}/loss_curve.png", dpi=100, bbox_inches='tight')
-    plt.close()
+    # Create epochs list for plotting
+    epochs = list(range(1, len(history['train_loss']) + 1))
     
-    # Plot accuracy
-    plt.figure(figsize=(10, 6))
-    plt.plot(history['train_acc'], label='Training Accuracy')
-    plt.plot(history['val_acc'], label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.title('Training and Validation Accuracy')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f"{log_dir}/accuracy_curve.png", dpi=100, bbox_inches='tight')
-    plt.close()
+    # Plot and save loss
+    save_plot_and_csv(
+        epochs,
+        history['train_loss'],
+        "transformer_train_loss",
+        folder=log_dir
+    )
+    
+    save_plot_and_csv(
+        epochs,
+        history['val_loss'],
+        "transformer_val_loss",
+        folder=log_dir
+    )
+    
+    # Plot and save accuracy
+    save_plot_and_csv(
+        epochs,
+        history['train_acc'],
+        "transformer_train_accuracy",
+        folder=log_dir
+    )
+    
+    save_plot_and_csv(
+        epochs,
+        history['val_acc'],
+        "transformer_val_accuracy",
+        folder=log_dir
+    )
     
     print(f"Training curves saved to {log_dir}")
 

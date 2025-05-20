@@ -14,6 +14,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match
 
 
+def save_plot_and_csv(x, y, name: str, folder: str = "results"):
+    """Save PNG plot **and** matching CSV so LLM can analyse the numbers."""
+    import os, pandas as pd, matplotlib.pyplot as plt
+    os.makedirs(folder, exist_ok=True)
+    pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
+    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+
+
 class MemoryOneStrategy(Strategy):
     """
     Memory-one strategy for the Iterated Prisoner's Dilemma.
@@ -311,30 +320,25 @@ def save_evolution_results(
     # Save history to CSV
     history_df.to_csv(f"{log_dir}/evolution/evolution_history.csv", index=False)
     
-    # Plot fitness over generations
-    plt.figure(figsize=(10, 6))
-    plt.plot(history['generation'], history['best_fitness'], label='Best Fitness', linewidth=2)
-    plt.plot(history['generation'], history['avg_fitness'], label='Average Fitness', alpha=0.7)
-    plt.fill_between(
+    # Save best fitness plot using helper
+    save_plot_and_csv(
         history['generation'],
-        np.array(history['avg_fitness']) - np.array(history['std_fitness']),
-        np.array(history['avg_fitness']) + np.array(history['std_fitness']),
-        alpha=0.2
+        history['best_fitness'],
+        "evolution_best_fitness",
+        folder=f"{log_dir}/evolution"
     )
     
-    plt.xlabel('Generation')
-    plt.ylabel('Fitness (Avg. Reward)')
-    plt.title('Evolution of IPD Strategy Fitness')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # Save figure
-    plt.savefig(f"{log_dir}/evolution/fitness_curve.png", dpi=100, bbox_inches='tight')
-    plt.close()
+    # Save average fitness plot using helper
+    save_plot_and_csv(
+        history['generation'],
+        history['avg_fitness'],
+        "evolution_avg_fitness",
+        folder=f"{log_dir}/evolution"
+    )
     
     print(f"Best evolved strategy saved to {save_dir}/evolved_strategy.pkl")
     print(f"Evolution history saved to {log_dir}/evolution/evolution_history.csv")
-    print(f"Fitness curve saved to {log_dir}/evolution/fitness_curve.png")
+    print(f"Fitness curves saved to {log_dir}/evolution/")
 
 
 def evaluate_strategy(

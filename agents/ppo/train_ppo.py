@@ -16,6 +16,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
 
 
+def save_plot_and_csv(x, y, name: str, folder: str = "results"):
+    """Save PNG plot **and** matching CSV so LLM can analyse the numbers."""
+    import os, pandas as pd, matplotlib.pyplot as plt
+    os.makedirs(folder, exist_ok=True)
+    pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
+    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+
+
 def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, seed=None):
     """
     Create and configure the IPD environment
@@ -311,22 +320,23 @@ def plot_results(log_dir="../../results", opponent_strategy="tit_for_tat"):
     else:
         rolling_rewards = rewards
     
-    # Create plot
-    plt.figure(figsize=(10, 6))
-    plt.plot(episodes, rewards, alpha=0.3, label='Episode Reward')
-    plt.plot(episodes, rolling_rewards, linewidth=2, label=f'{window}-Episode Moving Average')
+    # Create plot and save data using helper function
+    save_plot_and_csv(
+        episodes.tolist(), 
+        rolling_rewards.tolist(), 
+        f"ppo_learning_curve_{opponent_strategy}",
+        folder=f"{log_dir}/ppo"
+    )
     
-    plt.xlabel('Episode')
-    plt.ylabel('Reward')
-    plt.title(f'PPO Training Rewards against {opponent_strategy} opponent')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+    # Also save raw rewards
+    save_plot_and_csv(
+        episodes.tolist(), 
+        rewards.tolist(), 
+        f"ppo_raw_rewards_{opponent_strategy}",
+        folder=f"{log_dir}/ppo"
+    )
     
-    # Save figure
-    plt.savefig(f"{log_dir}/ppo/learning_curve_{opponent_strategy}.png", dpi=100, bbox_inches='tight')
-    plt.close()
-    
-    print(f"Learning curve saved to {log_dir}/ppo/learning_curve_{opponent_strategy}.png")
+    print(f"Learning curves saved to {log_dir}/ppo/")
 
 
 if __name__ == "__main__":

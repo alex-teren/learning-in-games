@@ -1,0 +1,10 @@
+# Ignore Jupyter notebooks - they contain interactive code and output
+*.ipynb
+
+# Ignore image files - they are generated during training and visualization
+*.png
+*.jpg
+
+# Ignore PyTorch model files - they contain trained model weights
+*.pt
+*.pth

@@ -33,8 +33,18 @@ import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 
-# Add project root to path
-repo_root = Path(__file__).resolve().parents[1]
+# %%
+# Determine repository root in both .py and Jupyter contexts
+try:
+    # Running as a .py script
+    repo_root = Path(__file__).resolve().parents[1]
+except NameError:
+    # Running in Jupyter: __file__ is undefined
+    repo_root = Path.cwd().resolve()
+    if repo_root.name == "notebooks":
+        repo_root = repo_root.parent
+
+# Add repo root to import path
 sys.path.append(str(repo_root))
 
 from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy

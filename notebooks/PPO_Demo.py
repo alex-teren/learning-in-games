@@ -220,15 +220,9 @@ load_curve()
 # %% [markdown]
 # ## Interpretation of Results
 #
-# * **Always-Cooperate policy.** The agent cooperates in every round (co-operation = 1.0),
-#   scoring the theoretical maximum (30) with Tit-for-Tat and AllC, but **0 against
-#   Always Defect**.
-# * Such behaviour exposes a vulnerability: opponents who defect unconditionally
-#   exploit the agent. This is a known effect when training only versus cooperative
-#   partners.
-# * For a more robust PPO strategy future work should include a varied opponent
-#   pool (AllD, Random, Grim Trigger) or self-play fine-tuning to encourage retaliatory
-#   defection when necessary.
-# * Nevertheless, the learning curve shows fast convergence; the setup and logging
-#   pipeline (models → CSV → PNG) works and is suitable for comparative analysis in
-#   the thesis.
+# * The learning curve (plotted as a rolling average) stabilizes around 15–16 due to early exploration and the windowed average; it converges quickly, showing fast—but not perfect—learning.  
+# * **Always-Cooperate policy:** The agent cooperates every round (cooperation = 1.0), earning the maximum 30 points vs Tit-for-Tat and Always Cooperate, but 0 vs Always Defect.  
+# * A noticeable dip around episode 120 reflects a brief exploration of defection before the agent reverted to full cooperation.  
+# * This strategy is vulnerable to unconditional defectors: opponents who always defect exploit the agent completely.  
+# * **Next steps** for a more robust PPO: train against a varied opponent pool (AllD, Random, Grim Trigger) or introduce self-play fine-tuning to encourage retaliatory defection when needed.  
+

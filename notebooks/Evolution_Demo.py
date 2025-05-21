@@ -16,38 +16,67 @@
 # %% [markdown]
 # # Evolutionary Strategy for Iterated Prisoner's Dilemma
 #
-# This notebook demonstrates the capabilities of an evolved memory-one strategy for playing
-# the Iterated Prisoner's Dilemma, trained using the CMA-ES evolutionary algorithm.
+# This notebook showcases a memory-one strategy evolved with CMA-ES
+# to play the Iterated Prisoner's Dilemma (IPD).
+#
+# If `QUICK_DEMO=1` is set, a miniature 3-generation evolution will be
+# performed; full-scale results require the pre-trained `evolved_strategy.pkl`.
 
 # %%
 import os
 import sys
+import time
+import pickle
+from pathlib import Path
+
+import cma
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
-import pickle
-import time
-import cma
 
-# Add project root to path to allow imports
-repo_root = Path(__file__).resolve().parents[1]
+# -----------------------------------------------------------
+# Detect repository root (works in both .py script and .ipynb)
+# -----------------------------------------------------------
+try:  # running as .py
+    repo_root = Path(__file__).resolve().parents[1]
+except NameError:  # running inside Jupyter
+    repo_root = Path.cwd().resolve()
+    if repo_root.name == "notebooks":
+        repo_root = repo_root.parent
+
 sys.path.append(str(repo_root))
 
-from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match, Strategy
+from env import (
+    IPDEnv,
+    TitForTat,
+    AlwaysCooperate,
+    AlwaysDefect,
+    RandomStrategy,
+    simulate_match,
+    Strategy,
+)
 
-# Define paths
+# Paths
 models_dir = repo_root / "models"
 results_dir = repo_root / "results"
 
-# Helper function
+# -----------------------------------------------------------
+# Helper: save plot + CSV so numbers remain accessible
+# -----------------------------------------------------------
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
-    """Save PNG plot **and** matching CSV so LLM can analyse the numbers."""
-    import os, pandas as pd, matplotlib.pyplot as plt
+    """Save PNG and matching CSV for later analysis."""
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
     os.makedirs(folder, exist_ok=True)
-    pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
-    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
-    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+    pd.DataFrame({"x": x, "y": y}).to_csv(
+        f"{folder}/{name}_data.csv", index=False
+    )
+    plt.figure()
+    plt.plot(x, y)
+    plt.title(name.replace("_", " ").title())
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight")
+    plt.close()
 
 # %% [markdown]
 # ## Memory-One Strategy Implementation
@@ -61,76 +90,38 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
 
 # %%
 class MemoryOneStrategy(Strategy):
-    """
-    Memory-one strategy for the Iterated Prisoner's Dilemma.
-    """
-    
+    """Memory-one strategy for IPD."""
+
     def __init__(self, params, name="MemoryOne"):
-        """
-        Initialize a memory-one strategy with given parameters
-        
-        Args:
-            params: List of probabilities [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
-            name: Strategy name
-        """
         super().__init__(name)
-        
-        # Ensure parameters are valid probabilities
         self.params = np.clip(params, 0.0, 1.0)
-        
-        # Extract parameters
-        self.p_cc = self.params[0]  # Prob. of cooperating after both players cooperated
-        self.p_cd = self.params[1]  # Prob. of cooperating after player cooperated, opponent defected
-        self.p_dc = self.params[2]  # Prob. of cooperating after player defected, opponent cooperated
-        self.p_dd = self.params[3]  # Prob. of cooperating after both players defected
-        self.initial_action_prob = self.params[4]  # Prob. of cooperating on first move
-        
-        # Initialize random number generator
+        self.p_cc, self.p_cd, self.p_dc, self.p_dd, self.initial_action_prob = self.params
         self.rng = np.random.RandomState()
-    
+
     def action(self, history, player_idx=0):
-        """
-        Determine next action based on game history
-        
-        Args:
-            history: List of tuples (player_action, opponent_action) for each past round
-            player_idx: Index of the player using this strategy (0 or 1)
-            
-        Returns:
-            int: 0 for Cooperate, 1 for Defect
-        """
-        # First move - use initial action probability
-        if not history:
+        if not history:  # first move
             return 0 if self.rng.random() < self.initial_action_prob else 1
-        
-        # Get opponent index
-        opponent_idx = 1 - player_idx
-        
-        # Get last actions
-        last_player_action = history[-1][player_idx]
-        last_opponent_action = history[-1][opponent_idx]
-        
-        # Determine cooperation probability based on previous actions
-        if last_player_action == 0 and last_opponent_action == 0:  # CC
-            coop_prob = self.p_cc
-        elif last_player_action == 0 and last_opponent_action == 1:  # CD
-            coop_prob = self.p_cd
-        elif last_player_action == 1 and last_opponent_action == 0:  # DC
-            coop_prob = self.p_dc
-        else:  # DD
-            coop_prob = self.p_dd
-        
-        # Return action based on probability
-        return 0 if self.rng.random() < coop_prob else 1
-    
+
+        opp_idx = 1 - player_idx
+        last_player, last_opp = history[-1][player_idx], history[-1][opp_idx]
+
+        if last_player == 0 and last_opp == 0:
+            prob = self.p_cc
+        elif last_player == 0 and last_opp == 1:
+            prob = self.p_cd
+        elif last_player == 1 and last_opp == 0:
+            prob = self.p_dc
+        else:
+            prob = self.p_dd
+
+        return 0 if self.rng.random() < prob else 1
+
     def __str__(self):
-        """String representation of the strategy"""
-        return (f"{self.name}: "
-                f"p_cc={self.p_cc:.2f}, "
-                f"p_cd={self.p_cd:.2f}, "
-                f"p_dc={self.p_dc:.2f}, "
-                f"p_dd={self.p_dd:.2f}, "
-                f"init={self.initial_action_prob:.2f}")
+        return (
+            f"{self.name}: "
+            f"p_cc={self.p_cc:.2f}, p_cd={self.p_cd:.2f}, "
+            f"p_dc={self.p_dc:.2f}, p_dd={self.p_dd:.2f}, init={self.initial_action_prob:.2f}"
+        )
 
 # %% [markdown]
 # ## Loading the Evolved Strategy
@@ -415,10 +406,19 @@ evolution_history = load_and_plot_evolution_history()
 # %% [markdown]
 # ## Interpretation of Results
 #
-# Based on the evolved strategy's performance:
-#
-# * The CMA-ES algorithm successfully evolved a memory-one strategy that performs well in the Iterated Prisoner's Dilemma environment.
-# * The evolved strategy has learned appropriate probability values that lead to effective gameplay against different opponents.
-# * Against Tit-for-Tat, the strategy shows cooperative behavior, leading to higher mutual rewards.
-# * The strategy can adapt to exploitative opponents like Always Defect by reducing its cooperation rate.
-# * Looking at the evolution history, we can see that the fitness (average reward) increased over generations, demonstrating the effectiveness of the evolutionary process.
+# * **Strong performance vs cooperative opponents.**  
+#   The strategy scores ~500 against Always Cooperate and ~300 in mutual
+#   cooperation with Tit-for-Tat / Pavlov.  
+# * **Limited retaliation vs Always Defect.**  
+#   Average score ≈ 67 : 233 shows occasional punishment, but the agent is
+#   still exploited by an unconditional defector.  
+# * **Moderate “grim” behaviour.**  
+#   Cooperation rate of 0.19 – 0.33 against Random and AllD indicates that
+#   defections occur, yet not consistently enough to deter persistent defectors.  
+# * **Evolution progress.**  
+#   Best fitness rose from ~249 to ~279 and average fitness from ~225 to ~256
+#   over 50 generations, plateauing after ≈ 35 generations.  
+# * **Future work.**  
+#   Increase the proportion of defection-oriented opponents (AllD, Grim Trigger)
+#   or extend generations / population size to push fitness closer to 300 against
+#   mixed opponents while minimising losses to AllD.

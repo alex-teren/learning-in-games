@@ -28,7 +28,7 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
 
 
-def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, seed=None):
+def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, seed=None, monitor_dir=None):
     """
     Create and configure the IPD environment
     
@@ -37,6 +37,7 @@ def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, se
         num_rounds: Number of rounds per episode
         memory_size: History memory size
         seed: Random seed
+        monitor_dir: Directory to save monitor files
         
     Returns:
         Configured environment
@@ -49,7 +50,11 @@ def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, se
     )
     
     # Wrap with Monitor to record episode statistics
-    env = Monitor(env)
+    if monitor_dir is not None:
+        os.makedirs(monitor_dir, exist_ok=True)
+        env = Monitor(env, filename=os.path.join(monitor_dir, "monitor.csv"))
+    else:
+        env = Monitor(env)
     
     return env
 
@@ -118,7 +123,8 @@ def train_ppo_agent(
         opponent_strategy=opponent_strategy,
         num_rounds=num_rounds,
         memory_size=memory_size,
-        seed=seed
+        seed=seed,
+        monitor_dir=f"{log_dir}/ppo"
     )
     
     eval_env = create_env(
@@ -231,7 +237,8 @@ def evaluate_against_all_opponents(model, num_rounds=10, memory_size=3, seed=42,
             opponent_strategy=opponent_strategy,
             num_rounds=num_rounds,
             memory_size=memory_size,
-            seed=seed+300
+            seed=seed+300,
+            monitor_dir=f"{log_dir}/ppo/eval_{opponent_name}"
         )
         
         # Run evaluation

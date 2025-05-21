@@ -135,7 +135,7 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
     print("Quickly evolving a demo strategy...")
     
     # Create environment
-    env = IPDEnv(num_rounds=10, seed=seed)
+    env = IPDEnv(num_rounds=100, seed=seed)
     
     # Define opponent strategies
     opponent_strategies = {
@@ -156,7 +156,7 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
         for opponent in opponent_strategies.values():
             # Simulate match against opponent
             for _ in range(3):  # 3 matches per opponent
-                results = simulate_match(env, strategy, opponent, num_rounds=10)
+                results = simulate_match(env, strategy, opponent, num_rounds=100)
                 total_rewards.append(results['player_score'])
         
         # Return average reward (higher is better)
@@ -277,7 +277,7 @@ opponent_strategies = {
 
 # Play 5 matches against each opponent
 num_matches = 5
-num_rounds = 10
+num_rounds = 100
 results = {}
 
 for opponent_name, opponent in opponent_strategies.items():
@@ -407,18 +407,18 @@ evolution_history = load_and_plot_evolution_history()
 # ## Interpretation of Results
 #
 # * **Strong performance vs cooperative opponents.**  
-#   The strategy scores ~500 against Always Cooperate and ~300 in mutual
-#   cooperation with Tit-for-Tat / Pavlov.  
+#   The strategy scores **~500** against Always Cooperate and **~240** in partial
+#   cooperation with Tit-for-Tat / Pavlov (≈ 67 % of rounds are CC).  
 # * **Limited retaliation vs Always Defect.**  
-#   Average score ≈ 67 : 233 shows occasional punishment, but the agent is
-#   still exploited by an unconditional defector.  
-# * **Moderate “grim” behaviour.**  
-#   Cooperation rate of 0.19 – 0.33 against Random and AllD indicates that
-#   defections occur, yet not consistently enough to deter persistent defectors.  
+#   Average score ≈ 90 : 10 shows some punishment, but the agent is still largely
+#   exploited by an unconditional defector.  
+# * **Sparse “grim” behaviour.**  
+#   Cooperation rate of **0.11 – 0.15** against Random and AllD indicates
+#   defections occur, yet not frequently enough to deter persistent defectors.  
 # * **Evolution progress.**  
-#   Best fitness rose from ~249 to ~279 and average fitness from ~225 to ~256
-#   over 50 generations, plateauing after ≈ 35 generations.  
+#   Best fitness rose from ~249 to **~285** and average fitness from ~225 to
+#   ~256 over 50 generations, plateauing after ≈ 35 generations.  
 # * **Future work.**  
-#   Increase the proportion of defection-oriented opponents (AllD, Grim Trigger)
-#   or extend generations / population size to push fitness closer to 300 against
-#   mixed opponents while minimising losses to AllD.
+#   Increase exposure to defection-oriented opponents (AllD, Grim Trigger) or
+#   extend generations/population size to push fitness closer to the 300-point
+#   range versus mixed opponents while minimising losses to AllD.

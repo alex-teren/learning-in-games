@@ -45,3 +45,6 @@ runs/
 .env
 .env.*
 !.env.example 
+
+# Jupyter Notebooks
+*.ipynb

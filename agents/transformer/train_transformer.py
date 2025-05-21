@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
+from pathlib import Path
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -33,7 +34,8 @@ def generate_trajectory_dataset(
     num_rounds: int = 10,
     strategy_pairs: Optional[List[Tuple[Strategy, Strategy]]] = None,
     include_random_games: bool = True,
-    seed: int = 42
+    seed: int = 42,
+    log_dir: Optional[str] = None
 ) -> List[Dict]:
     """
     Generate a dataset of game trajectories by simulating IPD games
@@ -44,11 +46,17 @@ def generate_trajectory_dataset(
         strategy_pairs: List of (player, opponent) strategy pairs to use
         include_random_games: Whether to include games with random actions
         seed: Random seed for reproducibility
+        log_dir: Directory to save dataset
         
     Returns:
         List of game trajectory dictionaries
     """
     print(f"Generating dataset of {num_games} IPD games...")
+    
+    # Get repo root and set default path if not provided
+    if log_dir is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_dir = repo_root / "results"
     
     # Set random seed
     np.random.seed(seed)
@@ -125,8 +133,8 @@ def generate_trajectory_dataset(
         trajectories.append(trajectory)
     
     # Save the raw dataset
-    os.makedirs("../../results/transformer", exist_ok=True)
-    with open("../../results/transformer/trajectory_dataset.pkl", "wb") as f:
+    os.makedirs(f"{log_dir}/transformer", exist_ok=True)
+    with open(f"{log_dir}/transformer/trajectory_dataset.pkl", "wb") as f:
         pickle.dump(trajectories, f)
     
     print(f"Generated {len(trajectories)} game trajectories")
@@ -418,8 +426,8 @@ def train_transformer(
     trajectories: List[Dict],
     model_params: Dict = None,
     training_params: Dict = None,
-    save_dir: str = "../../models",
-    log_dir: str = "../../results/transformer"
+    save_dir: Optional[str] = None,
+    log_dir: Optional[str] = None
 ) -> Tuple[DecisionTransformer, Dict]:
     """
     Train a Decision Transformer on IPD trajectory data
@@ -435,6 +443,13 @@ def train_transformer(
         Trained model and training history
     """
     print("Training Decision Transformer for IPD...")
+    
+    # Get repo root and set default paths if not provided
+    repo_root = Path(__file__).resolve().parents[2]
+    if save_dir is None:
+        save_dir = repo_root / "models"
+    if log_dir is None:
+        log_dir = repo_root / "results" / "transformer"
     
     # Create directories
     os.makedirs(save_dir, exist_ok=True)
@@ -806,7 +821,7 @@ def evaluate_transformer_agent(
     model: DecisionTransformer,
     model_params: Dict,
     training_params: Dict,
-    log_dir: str = "../../results/transformer",
+    log_dir: Optional[str] = None,
     num_rounds: int = 100,
     num_matches: int = 20,
     seed: int = 42
@@ -826,6 +841,11 @@ def evaluate_transformer_agent(
     Returns:
         DataFrame with evaluation results
     """
+    # Get repo root and set default path if not provided
+    if log_dir is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_dir = repo_root / "results" / "transformer"
+    
     # Set random seed
     np.random.seed(seed)
     random.seed(seed)
@@ -914,7 +934,7 @@ def evaluate_transformer_agent(
 
 
 def load_transformer_model(
-    model_path: str = "../../models/transformer_best.pth",
+    model_path: Optional[str] = None,
     model_params: Dict = None,
     device: str = None
 ) -> DecisionTransformer:
@@ -929,6 +949,11 @@ def load_transformer_model(
     Returns:
         Loaded model
     """
+    # Get repo root and set default path if not provided
+    if model_path is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        model_path = repo_root / "models" / "transformer_best.pth"
+    
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -977,7 +1002,7 @@ if __name__ == "__main__":
         'batch_size': 64,
         'lr': 1e-4,
         'weight_decay': 1e-4,
-        'epochs': 50,
+        'epochs': 10,
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
         'seed': 42
     }

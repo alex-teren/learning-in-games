@@ -7,6 +7,7 @@ import time
 import cma
 from typing import List, Tuple, Dict, Any, Optional
 import pickle
+from pathlib import Path
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -159,8 +160,8 @@ def run_cmaes_evolution(
     num_rounds: int = 100,
     opponent_strategies: Optional[Dict[str, Strategy]] = None,
     seed: int = 42,
-    save_dir: str = "../../models",
-    log_dir: str = "../../results"
+    save_dir: Optional[str] = None,
+    log_dir: Optional[str] = None
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
     Run CMA-ES optimization to evolve a memory-one IPD strategy
@@ -179,6 +180,13 @@ def run_cmaes_evolution(
         Best parameters found and evolution history
     """
     print("Starting CMA-ES evolution of IPD strategy...")
+    
+    # Get repo root and set default paths if not provided
+    repo_root = Path(__file__).resolve().parents[2]
+    if save_dir is None:
+        save_dir = repo_root / "models"
+    if log_dir is None:
+        log_dir = repo_root / "results"
     
     # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
@@ -278,8 +286,8 @@ def run_cmaes_evolution(
 def save_evolution_results(
     best_params: np.ndarray,
     history: Dict[str, List],
-    save_dir: str = "../../models",
-    log_dir: str = "../../results"
+    save_dir: Optional[str] = None,
+    log_dir: Optional[str] = None
 ) -> None:
     """
     Save evolution results and generate plots
@@ -290,6 +298,18 @@ def save_evolution_results(
         save_dir: Directory to save evolved strategies
         log_dir: Directory to save logs and plots
     """
+    # Get repo root and set default paths if not provided
+    repo_root = Path(__file__).resolve().parents[2]
+    if save_dir is None:
+        save_dir = repo_root / "models"
+    if log_dir is None:
+        log_dir = repo_root / "results"
+    
+    # Create directories if they don't exist
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
+    
     # Save best strategy
     best_strategy = MemoryOneStrategy(best_params)
     
@@ -347,7 +367,7 @@ def evaluate_strategy(
     num_rounds: int = 100,
     num_matches: int = 10,
     seed: int = 42,
-    log_dir: str = "../../results"
+    log_dir: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Evaluate a strategy against various opponents
@@ -364,6 +384,15 @@ def evaluate_strategy(
         DataFrame with evaluation results
     """
     print(f"Evaluating {strategy.name} strategy against different opponents...")
+    
+    # Get repo root and set default path if not provided
+    if log_dir is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_dir = repo_root / "results"
+    
+    # Create directories if they don't exist
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
     
     # Create environment
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
@@ -403,7 +432,6 @@ def evaluate_strategy(
     # Create and save results dataframe
     results_df = pd.DataFrame(results_list)
     
-    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
     results_df.to_csv(f"{log_dir}/evolution/evaluation_results.csv", index=False)
     
     print("Evaluation results:")
@@ -412,7 +440,7 @@ def evaluate_strategy(
     return results_df
 
 
-def load_evolved_strategy(model_path: str = "../../models/evolved_strategy.pkl") -> Strategy:
+def load_evolved_strategy(model_path: Optional[str] = None) -> Strategy:
     """
     Load a saved evolved strategy
     
@@ -422,6 +450,11 @@ def load_evolved_strategy(model_path: str = "../../models/evolved_strategy.pkl")
     Returns:
         Loaded strategy
     """
+    # Get repo root and set default path if not provided
+    if model_path is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        model_path = repo_root / "models" / "evolved_strategy.pkl"
+    
     with open(model_path, 'rb') as f:
         strategy = pickle.load(f)
     

@@ -9,6 +9,7 @@ import pandas as pd
 import time
 import gym
 import sys
+from pathlib import Path
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -64,8 +65,8 @@ def train_ppo_agent(
     num_rounds=10,
     memory_size=3,
     seed=42,
-    save_dir="../../models",
-    log_dir="../../results",
+    save_dir=None,
+    log_dir=None,
     eval_freq=10000,
     n_eval_episodes=50
 ):
@@ -94,6 +95,13 @@ def train_ppo_agent(
         Trained PPO model, results dataframe
     """
     print(f"Training PPO agent against {opponent_strategy} opponent...")
+    
+    # Get repo root and set default paths if not provided
+    repo_root = Path(__file__).resolve().parents[2]
+    if save_dir is None:
+        save_dir = repo_root / "models"
+    if log_dir is None:
+        log_dir = repo_root / "results"
     
     # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
@@ -176,7 +184,7 @@ def train_ppo_agent(
     return model
 
 
-def evaluate_against_all_opponents(model, num_rounds=10, memory_size=3, seed=42, log_dir="../../results"):
+def evaluate_against_all_opponents(model, num_rounds=10, memory_size=3, seed=42, log_dir=None):
     """
     Evaluate a trained model against different opponent strategies
     
@@ -191,6 +199,11 @@ def evaluate_against_all_opponents(model, num_rounds=10, memory_size=3, seed=42,
         DataFrame with evaluation results
     """
     print("Evaluating against different opponents...")
+    
+    # Get repo root and set default path if not provided
+    if log_dir is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_dir = repo_root / "results"
     
     # Define opponent strategies to evaluate against
     opponent_strategies = {
@@ -279,7 +292,7 @@ def get_cooperation_rates(model, env, n_episodes=100):
     }
 
 
-def plot_results(log_dir="../../results", opponent_strategy="tit_for_tat"):
+def plot_results(log_dir=None, opponent_strategy="tit_for_tat"):
     """
     Plot the training results
     
@@ -287,6 +300,11 @@ def plot_results(log_dir="../../results", opponent_strategy="tit_for_tat"):
         log_dir: Directory with logs
         opponent_strategy: Opponent strategy used in training
     """
+    # Get repo root and set default path if not provided
+    if log_dir is None:
+        repo_root = Path(__file__).resolve().parents[2]
+        log_dir = repo_root / "results"
+    
     # Find monitor files
     monitor_files = []
     for dirpath, dirnames, filenames in os.walk(f"{log_dir}/ppo"):
@@ -343,7 +361,7 @@ if __name__ == "__main__":
     # Train against Tit-for-Tat opponent
     model_tft = train_ppo_agent(
         opponent_strategy="tit_for_tat",
-        total_timesteps=200000,  # Reduced for faster execution
+        total_timesteps=100000,
         num_rounds=10,
         memory_size=3,
         seed=42

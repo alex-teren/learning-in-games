@@ -140,9 +140,9 @@ class DecisionTransformer(torch.nn.Module):
         action_tok = self.action_embedding(a_idx)
 
         # + positional / token-type
-        rtg_tok += self.pos_emb(pos_ids) + self.ttype_emb(torch.zeros_like(states))
-        state_tok += self.pos_emb(pos_ids) + self.ttype_emb(torch.ones_like(states))
-        action_tok += self.pos_emb(pos_ids) + self.ttype_emb(2 * torch.ones_like(states))
+        rtg_tok    += self.position_embedding(pos_ids) + self.token_type_embedding(torch.zeros_like(states))
+        state_tok  += self.position_embedding(pos_ids) + self.token_type_embedding(torch.ones_like(states))
+        action_tok += self.position_embedding(pos_ids) + self.token_type_embedding(2 * torch.ones_like(states))
 
         seq = torch.cat([rtg_tok, state_tok, action_tok], dim=1)  # shape B × 3L × H
 
@@ -563,11 +563,14 @@ def load_and_plot_training_history():
         
         return history_files
 
+# Load and plot training history if available
+training_history = load_and_plot_training_history()
+
 
 # %% [markdown]
 # ## Interpretation of Results
 #
-# * The Decision-Transformer matches cooperative opponents (TFT, Pavlov) and exploits Always Cooperate, showing it has learned context-aware behaviour from trajectories.  
+# * The Decision-Transformer matches cooperative opponents (TFT, Pavlov) and **keeps cooperating with Always Cooperate instead of exploiting it,** indicating a strong bias toward mutual cooperation rather than maximising payoff against unconditional cooperators.
 # * Against Always Defect it still cooperates too often, indicating that training data did not include enough punitive examples.  
 # * Training curves (loss ↓, accuracy ↑) show stable convergence over 20 epochs.  
 # * Because the model conditions on return-to-go, it can in principle be steered toward more aggressive or more generous play by adjusting the target return during inference.  

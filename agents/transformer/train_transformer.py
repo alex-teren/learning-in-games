@@ -13,6 +13,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
+import argparse
+from datetime import timedelta
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -471,7 +473,7 @@ def train_transformer(
             'batch_size': 64,
             'lr': 1e-4,
             'weight_decay': 1e-4,
-            'epochs': 50,
+            'epochs': 20,
             'device': 'cuda' if torch.cuda.is_available() else 'cpu',
             'seed': 42
         }
@@ -528,6 +530,17 @@ def train_transformer(
     # Create loss function
     criterion = nn.CrossEntropyLoss()
     
+    # Calculate ETA
+    # Estimate time based on dataset size, batch size, and epochs
+    batches_per_epoch = len(train_loader) + len(val_loader)
+    # Assume average of 0.2 seconds per batch on CPU (adjust for actual hardware)
+    seconds_per_batch = 0.2 
+    estimated_time_seconds = batches_per_epoch * training_params['epochs'] * seconds_per_batch
+    eta = timedelta(seconds=estimated_time_seconds)
+    
+    print(f"Estimated training time: {eta}")
+    print(f"Training for {training_params['epochs']} epochs...")
+    
     # Training loop
     history = {
         'train_loss': [],
@@ -540,6 +553,8 @@ def train_transformer(
     start_time = time.time()
     
     for epoch in range(training_params['epochs']):
+        epoch_start_time = time.time()
+        
         # Training
         model.train()
         train_loss = 0.0
@@ -617,12 +632,19 @@ def train_transformer(
         history['train_acc'].append(train_acc)
         history['val_acc'].append(val_acc)
         
+        # Calculate ETA
+        epoch_time = time.time() - epoch_start_time
+        epochs_left = training_params['epochs'] - (epoch + 1)
+        eta_seconds = epochs_left * epoch_time
+        eta = timedelta(seconds=eta_seconds)
+        
         # Print progress
         print(f"Epoch {epoch+1}/{training_params['epochs']} | "
               f"Train Loss: {train_loss:.4f} | "
               f"Train Acc: {train_acc:.4f} | "
               f"Val Loss: {val_loss:.4f} | "
-              f"Val Acc: {val_acc:.4f}")
+              f"Val Acc: {val_acc:.4f} | "
+              f"ETA: {eta}")
         
         # Save best model
         if val_acc > best_val_acc:
@@ -984,9 +1006,24 @@ def load_transformer_model(
 
 
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Train a Decision Transformer for Iterated Prisoner's Dilemma")
+    parser.add_argument("--epochs", type=int, default=20,
+                        help="Number of training epochs (default: 20)")
+    parser.add_argument("--batch_size", type=int, default=64,
+                        help="Batch size for training (default: 64)")
+    parser.add_argument("--num_games", type=int, default=2000,
+                        help="Number of games for dataset generation (default: 2000)")
+    parser.add_argument("--num_rounds", type=int, default=10,
+                        help="Number of rounds per game (default: 10)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed (default: 42)")
+    
+    args = parser.parse_args()
+    
     # Set parameters
-    num_games = 2000  # Number of games for dataset generation
-    num_rounds = 10   # Number of rounds per game
+    num_games = args.num_games
+    num_rounds = args.num_rounds
     
     # Model parameters
     model_params = {
@@ -999,12 +1036,12 @@ if __name__ == "__main__":
     
     # Training parameters
     training_params = {
-        'batch_size': 64,
+        'batch_size': args.batch_size,
         'lr': 1e-4,
         'weight_decay': 1e-4,
-        'epochs': 10,
+        'epochs': args.epochs,
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        'seed': 42
+        'seed': args.seed
     }
     
     # Step 1: Generate dataset

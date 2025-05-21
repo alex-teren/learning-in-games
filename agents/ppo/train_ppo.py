@@ -10,6 +10,8 @@ import time
 import gym
 import sys
 from pathlib import Path
+import argparse
+from datetime import timedelta
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -54,7 +56,7 @@ def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, se
 
 def train_ppo_agent(
     opponent_strategy="tit_for_tat",
-    total_timesteps=500000,
+    total_timesteps=200000,
     n_steps=2048,
     batch_size=64,
     learning_rate=3e-4,
@@ -161,6 +163,13 @@ def train_ppo_agent(
         tensorboard_log=f"{log_dir}/ppo_tensorboard",
         seed=seed
     )
+    
+    # Calculate ETA
+    # PPO typically processes about 1000-2000 timesteps per second on a CPU
+    estimated_time_seconds = total_timesteps / 1500  # Rough estimate, adjust based on hardware
+    eta = timedelta(seconds=estimated_time_seconds)
+    print(f"Estimated training time: {eta}")
+    print(f"Training will process {total_timesteps} timesteps...")
     
     # Train the agent
     start_time = time.time()
@@ -358,36 +367,25 @@ def plot_results(log_dir=None, opponent_strategy="tit_for_tat"):
 
 
 if __name__ == "__main__":
-    # Train against Tit-for-Tat opponent
-    model_tft = train_ppo_agent(
-        opponent_strategy="tit_for_tat",
-        total_timesteps=100000,
-        num_rounds=10,
-        memory_size=3,
-        seed=42
-    )
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Train a PPO agent for Iterated Prisoner's Dilemma")
+    parser.add_argument("--total_timesteps", type=int, default=200000, 
+                        help="Total number of timesteps for training (default: 200000)")
+    parser.add_argument("--opponent", type=str, default="tit_for_tat", 
+                        choices=["tit_for_tat", "always_cooperate", "always_defect", "random"],
+                        help="Opponent strategy for training (default: tit_for_tat)")
+    parser.add_argument("--num_rounds", type=int, default=10,
+                        help="Number of rounds per episode (default: 10)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed (default: 42)")
     
-    # Optionally train against other opponents
-    # model_allc = train_ppo_agent(
-    #     opponent_strategy="always_cooperate",
-    #     total_timesteps=200000,
-    #     num_rounds=10,
-    #     memory_size=3,
-    #     seed=43
-    # )
-    # 
-    # model_alld = train_ppo_agent(
-    #     opponent_strategy="always_defect",
-    #     total_timesteps=200000,
-    #     num_rounds=10,
-    #     memory_size=3,
-    #     seed=44
-    # )
-    # 
-    # model_random = train_ppo_agent(
-    #     opponent_strategy="random",
-    #     total_timesteps=200000,
-    #     num_rounds=10,
-    #     memory_size=3,
-    #     seed=45
-    # ) 
+    args = parser.parse_args()
+    
+    # Train against specified opponent
+    model = train_ppo_agent(
+        opponent_strategy=args.opponent,
+        total_timesteps=args.total_timesteps,
+        num_rounds=args.num_rounds,
+        memory_size=3,
+        seed=args.seed
+    ) 

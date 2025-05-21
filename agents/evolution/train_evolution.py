@@ -8,6 +8,8 @@ import cma
 from typing import List, Tuple, Dict, Any, Optional
 import pickle
 from pathlib import Path
+import argparse
+from datetime import timedelta
 
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -230,6 +232,15 @@ def run_cmaes_evolution(
         'std_fitness': []
     }
     
+    # Calculate ETA
+    # Each generation involves evaluating 'population_size' individuals
+    # Assume each evaluation takes about 0.5 seconds (adjust based on actual performance)
+    eval_time_per_individual = 0.5  # Rough estimate
+    estimated_time_seconds = num_generations * population_size * eval_time_per_individual
+    eta = timedelta(seconds=estimated_time_seconds)
+    print(f"Estimated training time: {eta}")
+    print(f"Running for {num_generations} generations with population size {population_size}...")
+    
     # Main evolution loop
     start_time = time.time()
     
@@ -266,10 +277,21 @@ def run_cmaes_evolution(
         if generation % 5 == 0 or generation == num_generations - 1:
             strategy = MemoryOneStrategy(best_params)
             elapsed_time = time.time() - start_time
+            
+            # Calculate and print ETA
+            if generation > 0:
+                time_per_generation = elapsed_time / (generation + 1)
+                remaining_generations = num_generations - generation - 1
+                eta_seconds = time_per_generation * remaining_generations
+                eta = timedelta(seconds=eta_seconds)
+                eta_str = f" | ETA: {eta}"
+            else:
+                eta_str = ""
+                
             print(f"Gen {generation+1}/{num_generations} | "
                   f"Best Fitness: {best_fitness:.2f} | "
                   f"Avg Fitness: {-np.mean(fitnesses):.2f} | "
-                  f"Time: {elapsed_time:.1f}s")
+                  f"Time: {elapsed_time:.1f}s{eta_str}")
             print(f"Best Strategy: {strategy}")
             print("-" * 80)
     
@@ -462,17 +484,25 @@ def load_evolved_strategy(model_path: Optional[str] = None) -> Strategy:
 
 
 if __name__ == "__main__":
-    # Set parameters for evolution
-    population_size = 20
-    num_generations = 50
-    num_rounds = 100
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Evolve a memory-one strategy for Iterated Prisoner's Dilemma")
+    parser.add_argument("--generations", type=int, default=50,
+                        help="Number of generations for evolution (default: 50)")
+    parser.add_argument("--population", type=int, default=20,
+                        help="Population size for CMA-ES (default: 20)")
+    parser.add_argument("--num_rounds", type=int, default=100,
+                        help="Number of rounds per match in evaluation (default: 100)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed (default: 42)")
+    
+    args = parser.parse_args()
     
     # Run CMA-ES evolution
     best_params, history = run_cmaes_evolution(
-        population_size=population_size,
-        num_generations=num_generations,
-        num_rounds=num_rounds,
-        seed=42
+        population_size=args.population,
+        num_generations=args.generations,
+        num_rounds=args.num_rounds,
+        seed=args.seed
     )
     
     # Create the best evolved strategy
@@ -483,17 +513,16 @@ if __name__ == "__main__":
         "tit_for_tat": TitForTat(),
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=42)
+        "random": RandomStrategy(seed=args.seed)
     }
     
     # Evaluate the evolved strategy against different opponents
     evaluation_results = evaluate_strategy(
         best_strategy,
         opponent_strategies,
-        num_rounds=100,
+        num_rounds=args.num_rounds,
         num_matches=20,
-        seed=42
+        seed=args.seed
     )
     
-    print(f"Evolution completed successfully!")
-    print(f"Best evolved strategy: {best_strategy}") 
+    print(f"Evolution completed successfully!") 

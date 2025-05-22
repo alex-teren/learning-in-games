@@ -20,7 +20,7 @@ from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
-    """Save PNG plot **and** matching CSV so LLM can analyse the numbers."""
+    """Save PNG plot and matching CSV"""
     import os, pandas as pd, matplotlib.pyplot as plt
     os.makedirs(folder, exist_ok=True)
     pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)

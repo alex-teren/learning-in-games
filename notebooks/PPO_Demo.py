@@ -47,7 +47,7 @@ except NameError:
 # Add repo root to import path
 sys.path.append(str(repo_root))
 
-from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
+from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
 
 # Paths
 models_dir = repo_root / "models"
@@ -143,6 +143,7 @@ opponents = {
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
     "random": RandomStrategy(seed=42),
+    "pavlov": PavlovStrategy(),
 }
 
 stats = {}
@@ -178,6 +179,7 @@ plt.bar(names, avg_rewards)
 plt.ylabel("Average Reward")
 plt.title("PPO Rewards vs Opponents")
 plt.ylim(0, max(avg_rewards) * 1.2)
+plt.xticks(rotation=45)
 
 plt.subplot(1, 2, 2)
 x = np.arange(len(names))
@@ -186,7 +188,7 @@ plt.bar(x - w / 2, agent_c, w, label="PPO Agent")
 plt.bar(x + w / 2, opp_c, w, label="Opponent")
 plt.ylabel("Cooperation Rate")
 plt.title("Cooperation Rates")
-plt.xticks(x, names)
+plt.xticks(x, names, rotation=45)
 plt.ylim(0, 1.05)
 plt.legend()
 plt.tight_layout()
@@ -221,8 +223,10 @@ load_curve()
 # ## Interpretation of Results
 #
 # * The learning curve (plotted as a rolling average) stabilizes around 15–16 due to early exploration and the windowed average; it converges quickly, showing fast—but not perfect—learning.  
-# * **Always-Cooperate policy:** The agent cooperates every round (cooperation = 1.0), earning the maximum 30 points vs Tit-for-Tat and Always Cooperate, but 0 vs Always Defect.  
+# * **Consistently cooperative policy:** The agent cooperates every round (cooperation = 1.0) with all opponents, even in the face of defection.
+# * **Reward structure reflects opponent strategy:** The agent earns the maximum 30 points against TFT, Always Cooperate, and Pavlov (all cooperative strategies), around 17 points against Random (which cooperates ~56% of the time), but 0 points against Always Defect.
 # * A noticeable dip around episode 120 reflects a brief exploration of defection before the agent reverted to full cooperation.  
-# * This strategy is vulnerable to unconditional defectors: opponents who always defect exploit the agent completely.  
+# * **Vulnerability to exploitation:** The strategy is completely exploited by unconditional defectors, receiving the minimum possible payoff.
+# * **Performance against Pavlov:** The agent achieves maximum cooperation and payoff with Pavlov, demonstrating compatibility with this Win-Stay, Lose-Shift adaptive strategy.
 # * **Next steps** for a more robust PPO: train against a varied opponent pool (AllD, Random, Grim Trigger) or introduce self-play fine-tuning to encourage retaliatory defection when needed.  
 

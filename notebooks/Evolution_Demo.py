@@ -52,6 +52,7 @@ from env import (
     AlwaysCooperate,
     AlwaysDefect,
     RandomStrategy,
+    PavlovStrategy,
     simulate_match,
     Strategy,
 )
@@ -142,7 +143,8 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
         "tit_for_tat": TitForTat(),
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=seed)
+        "random": RandomStrategy(seed=seed),
+        "pavlov": PavlovStrategy()
     }
     
     # Helper function for fitness evaluation
@@ -252,6 +254,7 @@ print(f"Evolved Strategy: {evolved_strategy}")
 # - Always Cooperate: Always cooperates regardless of what the opponent does
 # - Always Defect: Always defects regardless of what the opponent does
 # - Random: Randomly cooperates or defects with equal probability
+# - Pavlov: Win-Stay, Lose-Shift strategy that repeats successful actions
 
 # %%
 def play_match(strategy, opponent, num_rounds=100, seed=42):
@@ -272,7 +275,8 @@ opponent_strategies = {
     "tit_for_tat": TitForTat(),
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=42)
+    "random": RandomStrategy(seed=42),
+    "pavlov": PavlovStrategy()
 }
 
 # Play 5 matches against each opponent
@@ -338,6 +342,7 @@ plt.bar(opponent_names, player_scores)
 plt.ylabel("Average Score")
 plt.title("Evolved Strategy Scores vs Different Opponents")
 plt.ylim(0, max(player_scores) * 1.2)
+plt.xticks(rotation=45)
 
 # Plot cooperation rates
 plt.subplot(1, 2, 2)
@@ -347,7 +352,7 @@ plt.bar(x - width/2, player_coop_rates, width, label="Evolved Strategy")
 plt.bar(x + width/2, opponent_coop_rates, width, label="Opponent")
 plt.ylabel("Cooperation Rate")
 plt.title("Cooperation Rates")
-plt.xticks(x, opponent_names)
+plt.xticks(x, opponent_names, rotation=45)
 plt.ylim(0, 1.1)
 plt.legend()
 
@@ -407,17 +412,18 @@ evolution_history = load_and_plot_evolution_history()
 # ## Interpretation of Results
 #
 # * **Strong performance vs cooperative opponents.**  
-#   The strategy scores **~500** against Always Cooperate and **~240** in partial
-#   cooperation with Tit-for-Tat / Pavlov (≈ 67 % of rounds are CC).  
+#   The strategy scores **~500** against Always Cooperate and demonstrates high performance with **~280-290** points against both Random and Pavlov.  
+# * **Balanced approach with Tit-for-Tat.**  
+#   Score of **~230** with TFT shows effective reciprocal cooperation with a cooperation rate of ~67%.  
 # * **Limited retaliation vs Always Defect.**  
-#   Average score ≈ 90 : 10 shows some punishment, but the agent is still largely
+#   Average score ≈ 90 : 10 against AllD shows some punishment, but the agent is still largely
 #   exploited by an unconditional defector.  
-# * **Sparse “grim” behaviour.**  
-#   Cooperation rate of **0.11 – 0.15** against Random and AllD indicates
-#   defections occur, yet not frequently enough to deter persistent defectors.  
+# * **Strategic defection patterns.**  
+#   Cooperation rate varies significantly by opponent: ~67% vs TFT, ~15% vs AllD, only ~12% vs Random (despite Random cooperating ~50%), and ~93% vs Pavlov.  
 # * **Evolution progress.**  
-#   Best fitness rose from ~249 to **~285** and average fitness from ~225 to
-#   ~256 over 50 generations, plateauing after ≈ 35 generations.  
+#   Best fitness improved dramatically in later generations, rising from ~250 to **~285** over 50 generations, with a notable jump after generation 40. Average fitness remained more stable around ~250.  
+# * **Pavlov interactions.**  
+#   The evolved strategy achieves near-perfect cooperation with Pavlov (~93%), demonstrating remarkable compatibility with this Win-Stay, Lose-Shift strategy.
 # * **Future work.**  
 #   Increase exposure to defection-oriented opponents (AllD, Grim Trigger) or
 #   extend generations/population size to push fitness closer to the 300-point

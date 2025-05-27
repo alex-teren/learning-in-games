@@ -28,9 +28,9 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
 
 
-def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, seed=None, monitor_dir=None):
+def create_env(opponent_strategy="tit_for_tat", num_rounds=100, memory_size=3, seed=None, monitor_dir=None):
     """
-    Create and configure the IPD environment
+    Create IPD environment with specified opponent
     
     Args:
         opponent_strategy: Opponent strategy to use
@@ -69,7 +69,7 @@ def train_ppo_agent(
     ent_coef=0.01,
     clip_range=0.2,
     n_epochs=10,
-    num_rounds=10,
+    num_rounds=100,
     memory_size=3,
     seed=42,
     save_dir=None,
@@ -199,7 +199,7 @@ def train_ppo_agent(
     return model
 
 
-def evaluate_against_all_opponents(model, num_rounds=10, memory_size=3, seed=42, log_dir=None):
+def evaluate_against_all_opponents(model, num_rounds=100, memory_size=3, seed=42, log_dir=None):
     """
     Evaluate a trained model against different opponent strategies
     
@@ -381,8 +381,8 @@ if __name__ == "__main__":
     parser.add_argument("--opponent", type=str, default="tit_for_tat", 
                         choices=["tit_for_tat", "always_cooperate", "always_defect", "random"],
                         help="Opponent strategy for training (default: tit_for_tat)")
-    parser.add_argument("--num_rounds", type=int, default=10,
-                        help="Number of rounds per episode (default: 10)")
+    parser.add_argument("--num_rounds", type=int, default=100,
+                        help="Number of rounds per episode (default: 100)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     

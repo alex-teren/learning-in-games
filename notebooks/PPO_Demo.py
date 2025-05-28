@@ -26,12 +26,31 @@
 import os
 import sys
 import time
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
+
+# %%
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Demo of PPO agent for Iterated Prisoner's Dilemma")
+parser.add_argument("--num_rounds", type=int, default=100,
+                    help="Number of rounds per episode (default: 100)")
+parser.add_argument("--n_eval_episodes", type=int, default=20,
+                    help="Number of episodes for evaluation (default: 20)")
+parser.add_argument("--seed", type=int, default=42,
+                    help="Random seed (default: 42)")
+
+# Handle running in Jupyter vs as script
+try:
+    # When running as a script
+    args = parser.parse_args()
+except SystemExit:
+    # When running in Jupyter (no command line args)
+    args = parser.parse_args([])
 
 # %%
 # Determine repository root in both .py and Jupyter contexts
@@ -76,7 +95,7 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
 # is set, a tiny 2 k-step agent is trained for illustration.
 
 # %%
-def create_env(opponent_strategy="tit_for_tat", num_rounds=100, memory_size=3, seed=None):
+def create_env(opponent_strategy="tit_for_tat", num_rounds=args.num_rounds, memory_size=3, seed=None):
     return IPDEnv(
         num_rounds=num_rounds,
         memory_size=memory_size,
@@ -84,9 +103,9 @@ def create_env(opponent_strategy="tit_for_tat", num_rounds=100, memory_size=3, s
         seed=seed,
     )
 
-def quick_train_ppo(save_dir=models_dir, total_timesteps=2_000, seed=42):
+def quick_train_ppo(save_dir=models_dir, total_timesteps=2_000, seed=args.seed, num_rounds=args.num_rounds):
     print("Training a quick demo PPO model...")
-    env = create_env(opponent_strategy="tit_for_tat", seed=seed)
+    env = create_env(opponent_strategy="tit_for_tat", num_rounds=num_rounds, seed=seed)
     model = PPO("MlpPolicy", env, verbose=0, seed=seed)
     t0 = time.time()
     model.learn(total_timesteps=total_timesteps)
@@ -120,7 +139,7 @@ if not quick_demo:
 # ## Evaluating the Agent Against Classic Strategies
 
 # %%
-def play_match(model, opponent_strategy, num_rounds=100, seed=42):
+def play_match(model, opponent_strategy, num_rounds=args.num_rounds, seed=args.seed):
     env = create_env(opponent_strategy=opponent_strategy, num_rounds=num_rounds, seed=seed)
     obs, _ = env.reset()
     done = False
@@ -142,15 +161,15 @@ opponents = {
     "tit_for_tat": TitForTat(),
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=42),
+    "random": RandomStrategy(seed=args.seed),
     "pavlov": PavlovStrategy(),
 }
 
 stats = {}
 for name, strat in opponents.items():
     rewards, pc, oc = [], [], []
-    for i in range(5):
-        r, p_c, o_c = play_match(model, strat, seed=42 + i)
+    for i in range(args.n_eval_episodes):
+        r, p_c, o_c = play_match(model, strat, seed=args.seed + i)
         rewards.append(r)
         pc.append(p_c)
         oc.append(o_c)

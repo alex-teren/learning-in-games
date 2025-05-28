@@ -486,6 +486,27 @@ if __name__ == "__main__":
         seed=args.seed
     )
     
+    # Save evaluation results in the format expected by compare_approaches.py
+    repo_root = Path(__file__).resolve().parents[2]
+    log_dir = repo_root / "results" / "evolution"
+    
+    # Create evaluation_results.csv in the same format as PPO
+    eval_df_data = []
+    for opponent_name, metrics in evaluation_results.items():
+        eval_df_data.append({
+            'strategy': opponent_name,
+            'mean_score': metrics['mean_score'],
+            'std_score': metrics['std_score'],
+            'mean_cooperation_rate': metrics['mean_cooperation_rate'],
+            'std_cooperation_rate': metrics['std_cooperation_rate']
+        })
+    
+    eval_df = pd.DataFrame(eval_df_data)
+    eval_df.set_index('strategy', inplace=True)
+    eval_df.to_csv(f"{log_dir}/evaluation_results.csv")
+    
+    print(f"💾 Evaluation results saved: {log_dir}/evaluation_results.csv")
+    
     print("\n✅ Evolution completed!")
     print(f"🎯 Best fitness achieved: {results['best_fitness']:.3f}")
     print(f"📊 Results saved in results/evolution/")

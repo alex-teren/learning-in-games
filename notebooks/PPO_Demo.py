@@ -76,7 +76,7 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
 # is set, a tiny 2 k-step agent is trained for illustration.
 
 # %%
-def create_env(opponent_strategy="tit_for_tat", num_rounds=10, memory_size=3, seed=None):
+def create_env(opponent_strategy="tit_for_tat", num_rounds=100, memory_size=3, seed=None):
     return IPDEnv(
         num_rounds=num_rounds,
         memory_size=memory_size,
@@ -120,7 +120,7 @@ if not quick_demo:
 # ## Evaluating the Agent Against Classic Strategies
 
 # %%
-def play_match(model, opponent_strategy, num_rounds=10, seed=42):
+def play_match(model, opponent_strategy, num_rounds=100, seed=42):
     env = create_env(opponent_strategy=opponent_strategy, num_rounds=num_rounds, seed=seed)
     obs, _ = env.reset()
     done = False

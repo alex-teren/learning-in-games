@@ -370,7 +370,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", type=int, default=200000,
                       help="Total training timesteps (default: 200000)")
     parser.add_argument("--opponent", type=str, default="tit_for_tat",
-                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random"],
+                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random", "pavlov"],
                       help="Opponent strategy for training (default: tit_for_tat)")
     parser.add_argument("--num_rounds", type=int, default=100,
                       help="Number of rounds per episode (default: 100)")

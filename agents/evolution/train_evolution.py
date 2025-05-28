@@ -1,17 +1,17 @@
 import os
 import sys
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-import time
-import cma
-from typing import List, Tuple, Dict, Any, Optional
+import matplotlib.pyplot as plt
 import pickle
-from pathlib import Path
+from typing import List, Tuple, Dict, Any, Optional
+import time
+from tqdm import tqdm
 import argparse
-from datetime import timedelta
+from pathlib import Path
+import cma
 
-# Add project root to path to allow imports from other directories
+# Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy, simulate_match
@@ -19,518 +19,474 @@ from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, Rand
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     """Save PNG plot and matching CSV"""
-    import os, pandas as pd, matplotlib.pyplot as plt
     os.makedirs(folder, exist_ok=True)
     pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
-    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
-    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+    plt.figure(figsize=(10, 6))
+    plt.plot(x, y, linewidth=2)
+    plt.title(name.replace("_", " ").title())
+    plt.xlabel("Generation")
+    plt.ylabel("Fitness")
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight")
+    plt.close()
 
 
 class MemoryOneStrategy(Strategy):
     """
-    Memory-one strategy for the Iterated Prisoner's Dilemma.
+    Memory-one strategy for IPD - responds based on last round outcome
     
-    A memory-one strategy is defined by:
-    - initial_action: The first action to take
-    - p_cc: Probability of cooperating if both players cooperated in the previous round
-    - p_cd: Probability of cooperating if the player cooperated and opponent defected
-    - p_dc: Probability of cooperating if the player defected and opponent cooperated
-    - p_dd: Probability of cooperating if both players defected in the previous round
+    Parameters control probability of cooperation given last round:
+    - p_cc: Probability to cooperate after mutual cooperation (CC)
+    - p_cd: Probability to cooperate after I cooperated, opponent defected (CD)  
+    - p_dc: Probability to cooperate after I defected, opponent cooperated (DC)
+    - p_dd: Probability to cooperate after mutual defection (DD)
+    - initial_action_prob: Probability to cooperate on first move
     """
     
-    def __init__(self, params: List[float], name: str = "MemoryOne"):
-        """
-        Initialize a memory-one strategy with given parameters
-        
-        Args:
-            params: List of probabilities [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
-            name: Strategy name
-        """
+    def __init__(self, params: np.ndarray, name: str = "Memory-One"):
         super().__init__(name)
+        self.p_cc = max(0, min(1, params[0]))  # Clamp to [0, 1]
+        self.p_cd = max(0, min(1, params[1]))
+        self.p_dc = max(0, min(1, params[2]))
+        self.p_dd = max(0, min(1, params[3]))
+        self.initial_action_prob = max(0, min(1, params[4]))
+        self.params = params.copy()
         
-        # Ensure parameters are valid probabilities
-        self.params = np.clip(params, 0.0, 1.0)
-        
-        # Extract parameters
-        self.p_cc = self.params[0]  # Prob. of cooperating after both players cooperated
-        self.p_cd = self.params[1]  # Prob. of cooperating after player cooperated, opponent defected
-        self.p_dc = self.params[2]  # Prob. of cooperating after player defected, opponent cooperated
-        self.p_dd = self.params[3]  # Prob. of cooperating after both players defected
-        self.initial_action_prob = self.params[4]  # Prob. of cooperating on first move
-        
-        # Initialize random number generator
-        self.rng = np.random.RandomState()
+        # Update name to include parameters for identification
+        self.name = f"Memory-One(cc={self.p_cc:.2f},cd={self.p_cd:.2f},dc={self.p_dc:.2f},dd={self.p_dd:.2f},init={self.initial_action_prob:.2f})"
     
     def action(self, history: List[Tuple[int, int]], player_idx: int = 0) -> int:
-        """
-        Determine next action based on game history
+        if not history:  # First move
+            return 0 if np.random.random() < self.initial_action_prob else 1
         
-        Args:
-            history: List of tuples (player_action, opponent_action) for each past round
-            player_idx: Index of the player using this strategy (0 or 1)
-            
-        Returns:
-            int: 0 for Cooperate, 1 for Defect
-        """
-        # First move - use initial action probability
-        if not history:
-            return 0 if self.rng.random() < self.initial_action_prob else 1
+        # Get last round outcome
+        my_last_action = history[-1][player_idx]
+        opponent_last_action = history[-1][1 - player_idx]
         
-        # Get opponent index
-        opponent_idx = 1 - player_idx
-        
-        # Get last actions
-        last_player_action = history[-1][player_idx]
-        last_opponent_action = history[-1][opponent_idx]
-        
-        # Determine cooperation probability based on previous actions
-        if last_player_action == 0 and last_opponent_action == 0:  # CC
+        # Determine cooperation probability based on last round
+        if my_last_action == 0 and opponent_last_action == 0:  # CC
             coop_prob = self.p_cc
-        elif last_player_action == 0 and last_opponent_action == 1:  # CD
+        elif my_last_action == 0 and opponent_last_action == 1:  # CD  
             coop_prob = self.p_cd
-        elif last_player_action == 1 and last_opponent_action == 0:  # DC
+        elif my_last_action == 1 and opponent_last_action == 0:  # DC
             coop_prob = self.p_dc
         else:  # DD
             coop_prob = self.p_dd
         
-        # Return action based on probability
-        return 0 if self.rng.random() < coop_prob else 1
-    
-    @classmethod
-    def from_params(cls, params: List[float]) -> 'MemoryOneStrategy':
-        """
-        Create a MemoryOneStrategy from parameters
-        
-        Args:
-            params: List of probabilities [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
-            
-        Returns:
-            MemoryOneStrategy instance
-        """
-        return cls(params)
-    
-    def __str__(self) -> str:
-        """String representation of the strategy"""
-        return (f"{self.name}: "
-                f"p_cc={self.p_cc:.2f}, "
-                f"p_cd={self.p_cd:.2f}, "
-                f"p_dc={self.p_dc:.2f}, "
-                f"p_dd={self.p_dd:.2f}, "
-                f"init={self.initial_action_prob:.2f}")
+        return 0 if np.random.random() < coop_prob else 1
 
 
 def evaluate_fitness(
-    params: List[float],
-    env: IPDEnv,
-    opponent_strategies: Dict[str, Strategy],
+    params: np.ndarray,
+    opponent_strategies: List[Strategy],
+    num_games_per_opponent: int = 50,
     num_rounds: int = 100,
-    num_matches: int = 5
+    seed: Optional[int] = None
 ) -> float:
     """
-    Evaluate the fitness of a strategy defined by parameters
+    Evaluate fitness of a memory-one strategy against multiple opponents
     
     Args:
-        params: Strategy parameters (for MemoryOneStrategy)
-        env: IPD environment for evaluation
-        opponent_strategies: Dictionary of opponent strategies to play against
-        num_rounds: Number of rounds per match
-        num_matches: Number of matches per opponent
+        params: Strategy parameters [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
+        opponent_strategies: List of opponent strategies to test against
+        num_games_per_opponent: Number of games per opponent
+        num_rounds: Number of rounds per game
+        seed: Random seed for reproducibility
         
     Returns:
-        Fitness score (average reward across all matches)
+        Average fitness score across all opponents
     """
-    # Create memory-one strategy from parameters
+    if seed is not None:
+        np.random.seed(seed)
+    
+    env = IPDEnv(num_rounds=num_rounds, seed=seed)
     strategy = MemoryOneStrategy(params)
     
-    total_rewards = []
+    total_score = 0
+    total_games = 0
     
-    # Play against each opponent multiple times
-    for opponent_name, opponent in opponent_strategies.items():
-        for _ in range(num_matches):
-            # Simulate match against opponent
-            results = simulate_match(env, strategy, opponent, num_rounds)
-            total_rewards.append(results['player_score'])
+    for opponent in opponent_strategies:
+        opponent_scores = []
+        
+        for game in range(num_games_per_opponent):
+            # Simulate match
+            match_results = simulate_match(env, strategy, opponent, num_rounds)
+            opponent_scores.append(match_results['player_score'])
+        
+        # Average score against this opponent
+        avg_score = np.mean(opponent_scores)
+        total_score += avg_score
+        total_games += 1
     
-    # Return average reward (higher is better)
-    return np.mean(total_rewards)
+    # Return average score across all opponents
+    return total_score / total_games if total_games > 0 else 0.0
 
 
 def run_cmaes_evolution(
-    population_size: int = 10,
-    num_generations: int = 50,
-    sigma0: float = 0.5,
-    num_rounds: int = 100,
-    opponent_strategies: Optional[Dict[str, Strategy]] = None,
+    opponent_strategies: List[Strategy],
+    generations: int = 100,
+    population_size: int = 50,
+    sigma: float = 0.3,
     seed: int = 42,
+    num_games_per_opponent: int = 30,
+    num_rounds: int = 100,
     save_dir: Optional[str] = None,
-    log_dir: Optional[str] = None
-) -> Tuple[np.ndarray, Dict[str, Any]]:
+    log_dir: Optional[str] = None,
+    verbose: bool = True
+) -> Tuple[np.ndarray, List[float], Dict]:
     """
-    Run CMA-ES optimization to evolve a memory-one IPD strategy
+    Run CMA-ES evolution to find optimal memory-one strategy
     
     Args:
+        opponent_strategies: List of strategies to evolve against
+        generations: Number of generations to run
         population_size: Population size for CMA-ES
-        num_generations: Number of generations to run
-        sigma0: Initial step size
-        num_rounds: Number of rounds per match in evaluation
-        opponent_strategies: Opponent strategies to evaluate against
+        sigma: Initial standard deviation for CMA-ES
         seed: Random seed
-        save_dir: Directory to save evolved strategies
-        log_dir: Directory to save logs and plots
+        num_games_per_opponent: Games per opponent for fitness evaluation
+        num_rounds: Rounds per game
+        save_dir: Directory to save models
+        log_dir: Directory to save logs
+        verbose: Whether to print progress
         
     Returns:
-        Best parameters found and evolution history
+        best_params, fitness_history, results_dict
     """
-    print("Starting CMA-ES evolution of IPD strategy...")
     
-    # Get repo root and set default paths if not provided
+    print(f"🧬 Running CMA-ES Evolution for {generations} generations")
+    print(f"📊 Population size: {population_size}")
+    print(f"🎯 Testing against {len(opponent_strategies)} opponents:")
+    for strategy in opponent_strategies:
+        print(f"   - {strategy.name}")
+    
+    # Set up directories
     repo_root = Path(__file__).resolve().parents[2]
     if save_dir is None:
         save_dir = repo_root / "models"
     if log_dir is None:
-        log_dir = repo_root / "results"
+        log_dir = repo_root / "results" / "evolution"
     
-    # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
     
     # Set random seed
     np.random.seed(seed)
     
-    # Initialize IPD environment
-    env = IPDEnv(num_rounds=num_rounds, seed=seed)
+    # Initialize CMA-ES
+    # Parameters: [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
+    initial_guess = [0.5, 0.5, 0.5, 0.5, 0.5]  # Start with neutral strategy
     
-    # Set opponent strategies if not provided
-    if opponent_strategies is None:
-        opponent_strategies = {
-            "tit_for_tat": TitForTat(),
-            "always_cooperate": AlwaysCooperate(),
-            "always_defect": AlwaysDefect(),
-            "random": RandomStrategy(seed=seed+100),
-            "pavlov": PavlovStrategy(),
-            "grudger": GrudgerStrategy(),
-            "gtft": GTFTStrategy(seed=seed+101)
-        }
-    
-    # Initialize CMA-ES optimizer
-    # We optimize 5 parameters: [p_cc, p_cd, p_dc, p_dd, initial_action_prob]
-    
-    # Initial guess for parameters (TFT-like strategy)
-    initial_mean = np.array([0.99, 0.01, 0.99, 0.01, 0.99])
-    
-    # Initialize optimizer
-    es = cma.CMAEvolutionStrategy(
-        initial_mean,
-        sigma0,
-        {'popsize': population_size, 'seed': seed}
-    )
-    
-    # Setup for tracking progress
-    history = {
-        'generation': [],
-        'best_fitness': [],
-        'best_params': [],
-        'avg_fitness': [],
-        'std_fitness': []
+    # CMA-ES options
+    opts = {
+        'seed': seed,
+        'popsize': population_size,
+        'maxiter': generations,
+        'verb_disp': 1 if verbose else 0,
+        'verb_log': 0,
+        'bounds': [0, 1]  # All parameters should be probabilities
     }
     
-    # Calculate ETA
-    # Each generation involves evaluating 'population_size' individuals
-    # Assume each evaluation takes about 0.5 seconds (adjust based on actual performance)
-    eval_time_per_individual = 0.5  # Rough estimate
-    estimated_time_seconds = num_generations * population_size * eval_time_per_individual
-    eta = timedelta(seconds=estimated_time_seconds)
-    print(f"Estimated training time: {eta}")
-    print(f"Running for {num_generations} generations with population size {population_size}...")
+    # Initialize CMA-ES optimizer
+    es = cma.CMAEvolutionStrategy(initial_guess, sigma, opts)
     
-    # Main evolution loop
+    # Track evolution progress
+    fitness_history = []
+    best_fitness_history = []
+    generation_times = []
+    best_params = None
+    best_fitness = float('-inf')
+    
+    print(f"\n🚀 Starting evolution...")
     start_time = time.time()
     
-    for generation in range(num_generations):
-        # Sample population
+    generation = 0
+    while not es.stop():
+        generation += 1
+        gen_start_time = time.time()
+        
+        # Generate candidate solutions
         solutions = es.ask()
         
-        # Evaluate fitness for each individual
-        fitnesses = []
-        for params in solutions:
-            # Clip parameters to valid range [0, 1]
-            params_clipped = np.clip(params, 0, 1)
+        # Evaluate fitness for each solution
+        fitness_values = []
+        
+        if verbose:
+            solution_iter = tqdm(solutions, desc=f"Gen {generation:3d}")
+        else:
+            solution_iter = solutions
+        
+        for params in solution_iter:
+            fitness = evaluate_fitness(
+                params, 
+                opponent_strategies,
+                num_games_per_opponent,
+                num_rounds,
+                seed + generation  # Different seed per generation
+            )
+            fitness_values.append(fitness)
             
-            # Get fitness (negative because CMA-ES minimizes)
-            fitness = -evaluate_fitness(params_clipped, env, opponent_strategies, num_rounds)
-            fitnesses.append(fitness)
+            # Track best solution
+            if fitness > best_fitness:
+                best_fitness = fitness
+                best_params = params.copy()
         
-        # Update CMA-ES with evaluated solutions
-        es.tell(solutions, fitnesses)
+        # Update CMA-ES with fitness values (CMA-ES minimizes, so negate fitness)
+        es.tell(solutions, [-f for f in fitness_values])
         
-        # Get best solution in this generation
-        best_idx = np.argmin(fitnesses)
-        best_fitness = -fitnesses[best_idx]
-        best_params = np.clip(solutions[best_idx], 0, 1)
+        # Record statistics
+        gen_fitness = np.mean(fitness_values)
+        fitness_history.append(gen_fitness)
+        best_fitness_history.append(best_fitness)
         
-        # Log progress
-        history['generation'].append(generation)
-        history['best_fitness'].append(best_fitness)
-        history['best_params'].append(best_params)
-        history['avg_fitness'].append(-np.mean(fitnesses))
-        history['std_fitness'].append(np.std(fitnesses))
+        gen_time = time.time() - gen_start_time
+        generation_times.append(gen_time)
         
-        # Print progress
-        if generation % 5 == 0 or generation == num_generations - 1:
-            strategy = MemoryOneStrategy(best_params)
-            elapsed_time = time.time() - start_time
-            
-            # Calculate and print ETA
-            if generation > 0:
-                time_per_generation = elapsed_time / (generation + 1)
-                remaining_generations = num_generations - generation - 1
-                eta_seconds = time_per_generation * remaining_generations
-                eta = timedelta(seconds=eta_seconds)
-                eta_str = f" | ETA: {eta}"
-            else:
-                eta_str = ""
-                
-            print(f"Gen {generation+1}/{num_generations} | "
-                  f"Best Fitness: {best_fitness:.2f} | "
-                  f"Avg Fitness: {-np.mean(fitnesses):.2f} | "
-                  f"Time: {elapsed_time:.1f}s{eta_str}")
-            print(f"Best Strategy: {strategy}")
-            print("-" * 80)
+        if verbose:
+            print(f"Generation {generation:3d}: avg_fitness={gen_fitness:.3f}, "
+                  f"best_fitness={best_fitness:.3f}, time={gen_time:.1f}s")
     
-    # Get final best solution
-    best_params = es.result.xbest
-    best_params = np.clip(best_params, 0, 1)  # Ensure valid probabilities
+    total_time = time.time() - start_time
+    
+    print(f"\n✅ Evolution completed!")
+    print(f"🎯 Best fitness: {best_fitness:.3f}")
+    print(f"⏱️  Total time: {total_time:.1f} seconds")
+    print(f"📊 Generations: {generation}")
+    
+    # Create best strategy
+    best_strategy = MemoryOneStrategy(best_params, "Evolved-Best")
+    
+    # Detailed evaluation of best strategy
+    print(f"\n🏆 Best evolved strategy parameters:")
+    print(f"   p_cc (cooperate after CC): {best_params[0]:.3f}")
+    print(f"   p_cd (cooperate after CD): {best_params[1]:.3f}")
+    print(f"   p_dc (cooperate after DC): {best_params[2]:.3f}")
+    print(f"   p_dd (cooperate after DD): {best_params[3]:.3f}")
+    print(f"   initial_coop_prob:         {best_params[4]:.3f}")
     
     # Save results
-    save_evolution_results(best_params, history, save_dir, log_dir)
+    results_dict = {
+        'best_params': best_params,
+        'best_fitness': best_fitness,
+        'fitness_history': fitness_history,
+        'best_fitness_history': best_fitness_history,
+        'generation_times': generation_times,
+        'total_time': total_time,
+        'generations': generation,
+        'opponents': [s.name for s in opponent_strategies],
+        'settings': {
+            'population_size': population_size,
+            'sigma': sigma,
+            'num_games_per_opponent': num_games_per_opponent,
+            'num_rounds': num_rounds,
+            'seed': seed
+        }
+    }
     
-    return best_params, history
+    # Save evolution results
+    save_evolution_results(results_dict, save_dir, log_dir)
+    
+    # Plot evolution progress
+    plot_evolution_progress(fitness_history, best_fitness_history, log_dir)
+    
+    return best_params, fitness_history, results_dict
 
 
-def save_evolution_results(
-    best_params: np.ndarray,
-    history: Dict[str, List],
-    save_dir: Optional[str] = None,
-    log_dir: Optional[str] = None
-) -> None:
-    """
-    Save evolution results and generate plots
+def save_evolution_results(results_dict: Dict, save_dir: str, log_dir: str):
+    """Save evolution results to files"""
     
-    Args:
-        best_params: Best strategy parameters
-        history: Evolution history
-        save_dir: Directory to save evolved strategies
-        log_dir: Directory to save logs and plots
-    """
-    # Get repo root and set default paths if not provided
-    repo_root = Path(__file__).resolve().parents[2]
-    if save_dir is None:
-        save_dir = repo_root / "models"
-    if log_dir is None:
-        log_dir = repo_root / "results"
+    # Save best strategy parameters
+    with open(f"{save_dir}/evolved_strategy.pkl", "wb") as f:
+        pickle.dump(results_dict, f)
     
-    # Create directories if they don't exist
-    os.makedirs(save_dir, exist_ok=True)
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
-    
-    # Save best strategy
-    best_strategy = MemoryOneStrategy(best_params)
-    
-    # Save as numpy array
-    np.save(f"{save_dir}/evolved_strategy_params.npy", best_params)
-    
-    # Save as pickle for easy loading
-    with open(f"{save_dir}/evolved_strategy.pkl", 'wb') as f:
-        pickle.dump(best_strategy, f)
-    
-    # Save parameters as text file for reference
-    with open(f"{save_dir}/evolved_strategy_params.txt", 'w') as f:
-        f.write(f"# Evolved Memory-One Strategy Parameters\n")
-        f.write(f"p_cc = {best_params[0]:.6f}\n")
-        f.write(f"p_cd = {best_params[1]:.6f}\n")
-        f.write(f"p_dc = {best_params[2]:.6f}\n")
-        f.write(f"p_dd = {best_params[3]:.6f}\n")
-        f.write(f"initial_action_prob = {best_params[4]:.6f}\n")
-    
-    # Create history dataframe
+    # Save fitness history as CSV
     history_df = pd.DataFrame({
-        'Generation': history['generation'],
-        'Best Fitness': history['best_fitness'],
-        'Average Fitness': history['avg_fitness'],
-        'Std Fitness': history['std_fitness']
+        'generation': range(1, len(results_dict['fitness_history']) + 1),
+        'avg_fitness': results_dict['fitness_history'],
+        'best_fitness': results_dict['best_fitness_history']
     })
+    history_df.to_csv(f"{log_dir}/evolution_history.csv", index=False)
     
-    # Save history to CSV
-    history_df.to_csv(f"{log_dir}/evolution/evolution_history.csv", index=False)
+    # Save best parameters as CSV
+    params_df = pd.DataFrame({
+        'parameter': ['p_cc', 'p_cd', 'p_dc', 'p_dd', 'initial_coop_prob'],
+        'value': results_dict['best_params']
+    })
+    params_df.to_csv(f"{log_dir}/best_parameters.csv", index=False)
     
-    # Save best fitness plot using helper
-    save_plot_and_csv(
-        history['generation'],
-        history['best_fitness'],
-        "evolution_best_fitness",
-        folder=f"{log_dir}/evolution"
-    )
+    print(f"💾 Results saved:")
+    print(f"   Model: {save_dir}/evolved_strategy.pkl")
+    print(f"   History: {log_dir}/evolution_history.csv")
+    print(f"   Parameters: {log_dir}/best_parameters.csv")
+
+
+def plot_evolution_progress(fitness_history: List[float], best_fitness_history: List[float], log_dir: str):
+    """Plot evolution progress"""
+    generations = list(range(1, len(fitness_history) + 1))
     
-    # Save average fitness plot using helper
-    save_plot_and_csv(
-        history['generation'],
-        history['avg_fitness'],
-        "evolution_avg_fitness",
-        folder=f"{log_dir}/evolution"
-    )
+    plt.figure(figsize=(12, 5))
     
-    print(f"Best evolved strategy saved to {save_dir}/evolved_strategy.pkl")
-    print(f"Evolution history saved to {log_dir}/evolution/evolution_history.csv")
-    print(f"Fitness curves saved to {log_dir}/evolution/")
+    # Fitness over generations
+    plt.subplot(1, 2, 1)
+    plt.plot(generations, fitness_history, 'b-', label='Average Fitness', alpha=0.7)
+    plt.plot(generations, best_fitness_history, 'r-', label='Best Fitness', linewidth=2)
+    plt.xlabel('Generation')
+    plt.ylabel('Fitness')
+    plt.title('Evolution Progress')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Improvement over time
+    plt.subplot(1, 2, 2)
+    improvement = np.array(best_fitness_history) - best_fitness_history[0]
+    plt.plot(generations, improvement, 'g-', linewidth=2)
+    plt.xlabel('Generation')
+    plt.ylabel('Fitness Improvement')
+    plt.title('Cumulative Improvement')
+    plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(f"{log_dir}/evolution_progress.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # Save individual plots
+    save_plot_and_csv(generations, fitness_history, "evolution_avg_fitness", folder=log_dir)
+    save_plot_and_csv(generations, best_fitness_history, "evolution_best_fitness", folder=log_dir)
 
 
 def evaluate_strategy(
-    strategy: Strategy,
-    opponent_strategies: Dict[str, Strategy],
+    strategy: MemoryOneStrategy,
+    opponent_strategies: List[Strategy],
+    num_games: int = 100,
     num_rounds: int = 100,
-    num_matches: int = 20,
-    seed: int = 42,
-    log_dir: Optional[str] = None
-) -> pd.DataFrame:
-    """
-    Evaluate a strategy against various opponents
+    seed: int = 42
+) -> Dict:
+    """Evaluate a strategy against multiple opponents"""
     
-    Args:
-        strategy: Strategy to evaluate
-        opponent_strategies: Dictionary of opponent strategies
-        num_rounds: Number of rounds per match
-        num_matches: Number of matches per opponent
-        seed: Random seed
-        log_dir: Directory to save results
-        
-    Returns:
-        DataFrame with evaluation results
-    """
-    print(f"Evaluating {strategy.name} strategy against different opponents...")
+    print(f"🎯 Evaluating strategy: {strategy.name}")
     
-    # Get repo root and set default path if not provided
-    if log_dir is None:
-        repo_root = Path(__file__).resolve().parents[2]
-        log_dir = repo_root / "results"
-    
-    # Create directories if they don't exist
-    os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(f"{log_dir}/evolution", exist_ok=True)
-    
-    # Create environment
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
+    results = {}
     
-    # Results container
-    results_list = []
-    
-    # Evaluate against each opponent
-    for opponent_name, opponent in opponent_strategies.items():
-        matches_results = []
+    for opponent in opponent_strategies:
+        print(f"   vs {opponent.name}...")
         
-        for match in range(num_matches):
-            # Simulate match
+        scores = []
+        cooperation_rates = []
+        
+        for game in range(num_games):
             match_results = simulate_match(env, strategy, opponent, num_rounds)
-            matches_results.append({
-                'match': match + 1,
-                'player_score': match_results['player_score'],
-                'opponent_score': match_results['opponent_score'],
-                'player_coop_rate': match_results['cooperation_rate_player'],
-                'opponent_coop_rate': match_results['cooperation_rate_opponent']
-            })
+            scores.append(match_results['player_score'])
+            
+            # Calculate cooperation rate
+            player_actions = [step['player_action'] for step in match_results['history']]
+            coop_rate = player_actions.count(0) / len(player_actions)
+            cooperation_rates.append(coop_rate)
         
-        # Calculate average results across matches
-        avg_player_score = np.mean([r['player_score'] for r in matches_results])
-        avg_opponent_score = np.mean([r['opponent_score'] for r in matches_results])
-        avg_player_coop = np.mean([r['player_coop_rate'] for r in matches_results])
-        avg_opponent_coop = np.mean([r['opponent_coop_rate'] for r in matches_results])
+        results[opponent.name] = {
+            'mean_score': np.mean(scores),
+            'std_score': np.std(scores),
+            'mean_cooperation_rate': np.mean(cooperation_rates),
+            'std_cooperation_rate': np.std(cooperation_rates)
+        }
         
-        results_list.append({
-            'opponent': opponent_name,
-            'avg_player_score': avg_player_score,
-            'avg_opponent_score': avg_opponent_score,
-            'avg_player_coop_rate': avg_player_coop,
-            'avg_opponent_coop_rate': avg_opponent_coop
-        })
+        print(f"      Score: {np.mean(scores):.2f} ± {np.std(scores):.2f}")
+        print(f"      Cooperation: {np.mean(cooperation_rates):.2%} ± {np.std(cooperation_rates):.2%}")
     
-    # Create and save results dataframe
-    results_df = pd.DataFrame(results_list)
-    
-    results_df.to_csv(f"{log_dir}/evolution/evaluation_results.csv", index=False)
-    
-    print("Evaluation results:")
-    print(results_df)
-    
-    return results_df
+    return results
 
 
-def load_evolved_strategy(model_path: Optional[str] = None) -> Strategy:
-    """
-    Load a saved evolved strategy
-    
-    Args:
-        model_path: Path to saved strategy
-        
-    Returns:
-        Loaded strategy
-    """
-    # Get repo root and set default path if not provided
-    if model_path is None:
-        repo_root = Path(__file__).resolve().parents[2]
-        model_path = repo_root / "models" / "evolved_strategy.pkl"
-    
+def load_evolved_strategy(model_path: str) -> MemoryOneStrategy:
+    """Load evolved strategy from file"""
     with open(model_path, 'rb') as f:
-        strategy = pickle.load(f)
+        results_dict = pickle.load(f)
+    
+    best_params = results_dict['best_params']
+    strategy = MemoryOneStrategy(best_params, "Evolved-Loaded")
+    
+    print(f"📂 Loaded evolved strategy:")
+    print(f"   Best fitness: {results_dict['best_fitness']:.3f}")
+    print(f"   Parameters: {best_params}")
     
     return strategy
 
 
 if __name__ == "__main__":
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Evolve a memory-one strategy for Iterated Prisoner's Dilemma")
-    parser.add_argument("--generations", type=int, default=50,
-                        help="Number of generations for evolution (default: 50)")
-    parser.add_argument("--population", type=int, default=20,
-                        help="Population size for CMA-ES (default: 20)")
+    parser = argparse.ArgumentParser(description="Evolve memory-one strategies for IPD")
+    parser.add_argument("--generations", type=int, default=100,
+                        help="Number of generations (default: 100)")
+    parser.add_argument("--population_size", type=int, default=50,
+                        help="Population size (default: 50)")
+    parser.add_argument("--sigma", type=float, default=0.3,
+                        help="Initial standard deviation for CMA-ES (default: 0.3)")
+    parser.add_argument("--num_games", type=int, default=30,
+                        help="Number of games per opponent for evaluation (default: 30)")
     parser.add_argument("--num_rounds", type=int, default=100,
-                        help="Number of rounds per match in evaluation (default: 100)")
-    parser.add_argument("--num_matches", type=int, default=20,
-                        help="Number of matches per opponent for evaluation (default: 20)")
+                        help="Number of rounds per game (default: 100)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
+    parser.add_argument("--opponents", type=str, nargs='+',
+                        choices=['all', 'tit_for_tat', 'always_cooperate', 'always_defect', 'random', 'pavlov', 'grudger', 'gtft'],
+                        default=['all'],
+                        help="Opponent strategies to evolve against")
     
     args = parser.parse_args()
     
-    # Run CMA-ES evolution
-    best_params, history = run_cmaes_evolution(
-        population_size=args.population,
-        num_generations=args.generations,
-        num_rounds=args.num_rounds,
-        seed=args.seed
+    print("=== Evolutionary Strategy Training for IPD ===")
+    
+    # Set up opponent strategies
+    if 'all' in args.opponents:
+        opponent_strategies = [
+            TitForTat(),
+            AlwaysCooperate(), 
+            AlwaysDefect(),
+            RandomStrategy(seed=args.seed),
+            PavlovStrategy(),
+            GrudgerStrategy(),
+            GTFTStrategy(seed=args.seed)
+        ]
+    else:
+        opponent_map = {
+            'tit_for_tat': TitForTat(),
+            'always_cooperate': AlwaysCooperate(),
+            'always_defect': AlwaysDefect(),
+            'random': RandomStrategy(seed=args.seed),
+            'pavlov': PavlovStrategy(),
+            'grudger': GrudgerStrategy(),
+            'gtft': GTFTStrategy(seed=args.seed)
+        }
+        opponent_strategies = [opponent_map[name] for name in args.opponents]
+    
+    # Run evolution
+    best_params, fitness_history, results = run_cmaes_evolution(
+        opponent_strategies=opponent_strategies,
+        generations=args.generations,
+        population_size=args.population_size,
+        sigma=args.sigma,
+        seed=args.seed,
+        num_games_per_opponent=args.num_games,
+        num_rounds=args.num_rounds
     )
     
-    # Create the best evolved strategy
-    best_strategy = MemoryOneStrategy(best_params, name="EvolvedStrategy")
+    # Create and evaluate final strategy
+    final_strategy = MemoryOneStrategy(best_params, "Evolved-Final")
     
-    # Define opponent strategies
-    opponent_strategies = {
-        "tit_for_tat": TitForTat(),
-        "always_cooperate": AlwaysCooperate(),
-        "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=args.seed),
-        "pavlov": PavlovStrategy(),
-        "grudger": GrudgerStrategy(),
-        "gtft": GTFTStrategy(seed=args.seed+100)
-    }
+    # Comprehensive evaluation
+    print(f"\n📊 Comprehensive evaluation:")
+    all_opponents = [
+        TitForTat(), AlwaysCooperate(), AlwaysDefect(), 
+        RandomStrategy(seed=args.seed+1000), PavlovStrategy(),
+        GrudgerStrategy(), GTFTStrategy(seed=args.seed+1000)
+    ]
     
-    # Evaluate the evolved strategy against different opponents
     evaluation_results = evaluate_strategy(
-        best_strategy,
-        opponent_strategies,
+        final_strategy, 
+        all_opponents,
+        num_games=100,
         num_rounds=args.num_rounds,
-        num_matches=args.num_matches,
         seed=args.seed
     )
     
-    print(f"Evolution completed successfully!") 
+    print("\n✅ Evolution completed!")
+    print(f"🎯 Best fitness achieved: {results['best_fitness']:.3f}")
+    print(f"📊 Results saved in results/evolution/")
+    print(f"💾 Model saved in models/evolved_strategy.pkl") 

@@ -1,0 +1,8 @@
+Opponent,EVOLUTION,PPO,TRANSFORMER
+Always Cooperate,0.5001,0.02,0.3934
+Always Defect,0.005,0.01,0.3246
+GTFT(p=0.1),,0.826,
+Grudger,,0.01,
+Pavlov,0.6208,0.5,0.7818
+Random(p=0.5),0.4352,0.479,0.705
+Tit-for-Tat,0.6182000000000001,0.5,0.7342

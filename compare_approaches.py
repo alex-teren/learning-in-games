@@ -341,7 +341,7 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
 def create_individual_plots(results: Dict, output_dir: str) -> None:
     """Create individual comparison plots"""
     
-    strategies = ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'RandomStrategy', 'PavlovStrategy']
+    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov']
     approaches = list(results.keys())
     
     # Performance heatmap
@@ -447,7 +447,7 @@ def print_summary(results: Dict, training_times: Dict) -> None:
     # Performance summary
     print("\n📊 Performance Summary:")
     
-    strategies = ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'RandomStrategy', 'PavlovStrategy']
+    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov']
     
     for strategy in strategies:
         print(f"\n   vs {strategy}:")

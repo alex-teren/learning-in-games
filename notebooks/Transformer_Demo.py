@@ -430,7 +430,7 @@ transformer_strategy = TransformerStrategy(model, model_params)
 # ## Evaluation against classic strategies
 
 # %%
-def play_match(strategy, opponent, num_rounds=10, seed=42):
+def play_match(strategy, opponent, num_rounds=100, seed=42):
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
     res = simulate_match(env, strategy, opponent, num_rounds)
     return dict(
@@ -449,7 +449,7 @@ opponents = {
     "pavlov": PavlovStrategy(),
 }
 
-num_matches, num_rounds = 5, 10
+num_matches, num_rounds = 5, 100
 results = {}
 
 for name, opp in opponents.items():

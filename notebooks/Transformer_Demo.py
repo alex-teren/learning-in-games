@@ -584,8 +584,21 @@ training_history = load_and_plot_training_history()
 # %% [markdown]
 # ## Interpretation of Results
 #
-# * The Decision-Transformer matches cooperative opponents (TFT, Pavlov) and **keeps cooperating with Always Cooperate instead of exploiting it,** indicating a strong bias toward mutual cooperation rather than maximising payoff against unconditional cooperators.
-# * Against Always Defect it still cooperates too often, indicating that training data did not include enough punitive examples.  
-# * Training curves (loss ↓, accuracy ↑) show stable convergence over 20 epochs.  
-# * Because the model conditions on return-to-go, it can in principle be steered toward more aggressive or more generous play by adjusting the target return during inference.  
-# * Future work: augment the training set with trajectories featuring systematic punishment of defectors or fine-tune the model with on-policy roll-outs.
+# * **Consistent cooperation strategy:** The transformer learned to always cooperate (100% cooperation rate against TFT, Always Cooperate, Pavlov, and nearly 100% against AlwaysDefect).
+# * **Good performance with cooperative opponents:** The model achieves high scores (~300) against TFT, Always Cooperate, and Pavlov by maintaining mutual cooperation.
+# * **Vulnerable to Always Defect:** The model receives zero reward against Always Defect because it continues to cooperate despite being exploited.
+# * **Moderate success with Random:** The model earns ~160 points against Random opponents (which cooperate ~50% of the time), showing limited adaptation to mixed strategies.
+# * **Training approach impact:** The transformer was trained through behavioral cloning on cooperative trajectories, which explains why it learned a fixed cooperative pattern rather than an adaptive strategy.
+# * **Convergence in learning:** The loss curves show quick initial improvement that stabilizes around epoch 10, while accuracy rises to ~77%, suggesting the model learns a simple policy that fits the training data well.
+# * **Reason for behavior:** Unlike reinforcement learning approaches, the transformer doesn't explore different strategies - it simply imitates the most common patterns in its training data, which likely contained many examples of mutual cooperation.
+
+# %% [markdown]
+# ## Інтерпретація результатів
+#
+# * **Стратегія стабільної кооперації:** Трансформер навчився завжди кооперувати (100% рівень кооперації проти TFT, Always Cooperate, Pavlov, і майже 100% проти AlwaysDefect).
+# * **Хороші результати з кооперативними опонентами:** Модель досягає високих балів (~300) проти TFT, Always Cooperate і Pavlov завдяки підтримці взаємної кооперації.
+# * **Вразливість до Always Defect:** Модель отримує нульову винагороду проти Always Defect, оскільки продовжує кооперувати, незважаючи на експлуатацію.
+# * **Помірний успіх з Random:** Модель заробляє ~160 балів проти випадкових опонентів (які кооперують ~50% часу), демонструючи обмежену адаптацію до змішаних стратегій.
+# * **Вплив підходу до навчання:** Трансформер був навчений шляхом поведінкового клонування на кооперативних траєкторіях, що пояснює, чому він вивчив фіксований кооперативний патерн, а не адаптивну стратегію.
+# * **Збіжність у навчанні:** Криві втрат показують швидке початкове покращення, яке стабілізується близько 10-ї епохи, а точність зростає до ~77%, що свідчить про те, що модель вивчає просту політику, яка добре відповідає тренувальним даним.
+# * **Причина поведінки:** На відміну від підходів з підкріпленням, трансформер не досліджує різні стратегії - він просто імітує найбільш поширені патерни у своїх навчальних даних, які, ймовірно, містили багато прикладів взаємної кооперації.

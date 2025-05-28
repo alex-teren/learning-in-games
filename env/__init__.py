@@ -5,7 +5,9 @@ from env.strategies import (
     AlwaysCooperate, 
     AlwaysDefect, 
     RandomStrategy,
-    PavlovStrategy
+    PavlovStrategy,
+    GrudgerStrategy,
+    GTFTStrategy
 )
 
 __all__ = [
@@ -16,5 +18,7 @@ __all__ = [
     'AlwaysCooperate',
     'AlwaysDefect',
     'RandomStrategy',
-    'PavlovStrategy'
+    'PavlovStrategy',
+    'GrudgerStrategy',
+    'GTFTStrategy'
 ] 

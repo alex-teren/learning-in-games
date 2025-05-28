@@ -101,7 +101,66 @@ class PavlovStrategy(Strategy):
             return 1 - player_last_action  # Switch action
 
 
+class GrudgerStrategy(Strategy):
+    """
+    Grudger (Grim Trigger) strategy:
+    - Cooperate until opponent defects once
+    - After opponent's first defection, always defect
+    - Known for its unforgiving nature and strong deterrent effect
+    """
+    
+    def __init__(self):
+        super().__init__("Grudger")
+        self.opponent_defected = False
+    
+    def action(self, history: List[Tuple[int, int]], player_idx: int = 0) -> int:
+        if not history:  # First move
+            return 0  # Cooperate
+        
+        # Check if opponent has ever defected
+        opponent_idx = 1 - player_idx
+        for round_actions in history:
+            if round_actions[opponent_idx] == 1:  # Opponent defected
+                self.opponent_defected = True
+                break
+        
+        # If opponent ever defected, always defect from now on
+        return 1 if self.opponent_defected else 0
+
+
+class GTFTStrategy(Strategy):
+    """
+    Generous Tit-for-Tat (GTFT) strategy:
+    - Like Tit-for-Tat, but occasionally forgives defections
+    - Cooperates on first move
+    - Usually copies opponent's last move, but sometimes cooperates even after opponent defects
+    - Forgiveness probability calculated to prevent mutual defection cycles
+    """
+    
+    def __init__(self, forgiveness_prob: float = 0.1, seed: Optional[int] = None):
+        super().__init__(f"GTFT(p={forgiveness_prob})")
+        self.forgiveness_prob = forgiveness_prob
+        self.rng = np.random.RandomState(seed)
+    
+    def action(self, history: List[Tuple[int, int]], player_idx: int = 0) -> int:
+        if not history:  # First move
+            return 0  # Cooperate
+        
+        # Get opponent's last action
+        opponent_idx = 1 - player_idx
+        opponent_last_action = history[-1][opponent_idx]
+        
+        # If opponent cooperated, always cooperate
+        if opponent_last_action == 0:
+            return 0
+        
+        # If opponent defected, usually defect but sometimes forgive
+        if self.rng.random() < self.forgiveness_prob:
+            return 0  # Forgive (cooperate despite opponent's defection)
+        else:
+            return 1  # Retaliate (defect)
+
+
 # Add more strategies as needed, e.g.:
-# - Generous Tit-for-Tat
-# - Grim Trigger
+# - Zero-Determinant strategies
 # - Memory-N strategies 

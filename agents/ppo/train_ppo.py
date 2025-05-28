@@ -16,7 +16,7 @@ from datetime import timedelta
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
+from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -226,7 +226,9 @@ def evaluate_against_all_opponents(model, num_rounds=100, memory_size=3, seed=42
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
         "random": RandomStrategy(seed=seed+200),
-        "pavlov": PavlovStrategy()
+        "pavlov": PavlovStrategy(),
+        "grudger": GrudgerStrategy(),
+        "gtft": GTFTStrategy(seed=seed+201)
     }
     
     # Create results dataframe
@@ -370,7 +372,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", type=int, default=200000,
                       help="Total training timesteps (default: 200000)")
     parser.add_argument("--opponent", type=str, default="tit_for_tat",
-                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random", "pavlov"],
+                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random", "pavlov", "grudger", "gtft"],
                       help="Opponent strategy for training (default: tit_for_tat)")
     parser.add_argument("--num_rounds", type=int, default=100,
                       help="Number of rounds per episode (default: 100)")

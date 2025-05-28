@@ -71,6 +71,8 @@ from env import (
     AlwaysDefect,
     RandomStrategy,
     PavlovStrategy,
+    GrudgerStrategy,
+    GTFTStrategy,
     simulate_match,
     Strategy,
 )
@@ -160,7 +162,9 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
         "random": RandomStrategy(seed=seed),
-        "pavlov": PavlovStrategy()
+        "pavlov": PavlovStrategy(),
+        "grudger": GrudgerStrategy(),
+        "gtft": GTFTStrategy(seed=seed+100)
     }
     
     # Helper function for fitness evaluation
@@ -292,7 +296,9 @@ opponent_strategies = {
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
     "random": RandomStrategy(seed=args.seed),
-    "pavlov": PavlovStrategy()
+    "pavlov": PavlovStrategy(),
+    "grudger": GrudgerStrategy(),
+    "gtft": GTFTStrategy(seed=args.seed+100)
 }
 
 # Play matches against each opponent

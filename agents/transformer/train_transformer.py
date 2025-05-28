@@ -19,7 +19,7 @@ from datetime import timedelta
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match, PavlovStrategy
+from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match, PavlovStrategy, GrudgerStrategy, GTFTStrategy
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -75,7 +75,9 @@ def generate_trajectory_dataset(
             AlwaysCooperate(),
             AlwaysDefect(),
             RandomStrategy(seed=seed),
-            PavlovStrategy()
+            PavlovStrategy(),
+            GrudgerStrategy(),
+            GTFTStrategy(seed=seed+100)
         ]
         
         # Create all possible pairs of strategies
@@ -888,7 +890,9 @@ def evaluate_transformer_agent(
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
         "random": RandomStrategy(seed=seed+100),
-        "pavlov": PavlovStrategy()
+        "pavlov": PavlovStrategy(),
+        "grudger": GrudgerStrategy(),
+        "gtft": GTFTStrategy(seed=seed+101)
     }
     
     # Results container

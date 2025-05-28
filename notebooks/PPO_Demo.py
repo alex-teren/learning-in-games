@@ -66,7 +66,7 @@ except NameError:
 # Add repo root to import path
 sys.path.append(str(repo_root))
 
-from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
+from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy
 
 # Paths
 models_dir = repo_root / "models"
@@ -163,6 +163,8 @@ opponents = {
     "always_defect": AlwaysDefect(),
     "random": RandomStrategy(seed=args.seed),
     "pavlov": PavlovStrategy(),
+    "grudger": GrudgerStrategy(),
+    "gtft": GTFTStrategy(seed=args.seed+100),
 }
 
 stats = {}

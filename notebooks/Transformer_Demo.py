@@ -70,6 +70,8 @@ from env import (
     AlwaysDefect,
     RandomStrategy,
     PavlovStrategy,
+    GrudgerStrategy,
+    GTFTStrategy,
     simulate_match,
 )
 
@@ -228,7 +230,7 @@ def quick_train_transformer(save_dir=models_dir, num_epochs=2, seed=args.seed, n
     
     # Generate a small dataset of trajectories
     num_games = 200
-    strategies = [TitForTat(), AlwaysCooperate(), AlwaysDefect(), RandomStrategy(seed=seed), PavlovStrategy()]
+    strategies = [TitForTat(), AlwaysCooperate(), AlwaysDefect(), RandomStrategy(seed=seed), PavlovStrategy(), GrudgerStrategy(), GTFTStrategy(seed=seed+100)]
     
     trajectories = []
     
@@ -462,6 +464,8 @@ opponents = {
     "always_defect": AlwaysDefect(),
     "random": RandomStrategy(seed=args.seed),
     "pavlov": PavlovStrategy(),
+    "grudger": GrudgerStrategy(),
+    "gtft": GTFTStrategy(seed=args.seed+100),
 }
 
 results = {}

@@ -14,7 +14,7 @@ from datetime import timedelta
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, simulate_match
+from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy, simulate_match
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -208,7 +208,9 @@ def run_cmaes_evolution(
             "always_cooperate": AlwaysCooperate(),
             "always_defect": AlwaysDefect(),
             "random": RandomStrategy(seed=seed+100),
-            "pavlov": PavlovStrategy()
+            "pavlov": PavlovStrategy(),
+            "grudger": GrudgerStrategy(),
+            "gtft": GTFTStrategy(seed=seed+101)
         }
     
     # Initialize CMA-ES optimizer
@@ -517,7 +519,9 @@ if __name__ == "__main__":
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
         "random": RandomStrategy(seed=args.seed),
-        "pavlov": PavlovStrategy()
+        "pavlov": PavlovStrategy(),
+        "grudger": GrudgerStrategy(),
+        "gtft": GTFTStrategy(seed=args.seed+100)
     }
     
     # Evaluate the evolved strategy against different opponents

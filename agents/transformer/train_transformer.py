@@ -675,7 +675,7 @@ def train_transformer(
     
     # Evaluate trained model
     print("Evaluating trained model against classic strategies...")
-    evaluate_transformer_agent(model, model_params, training_params, log_dir)
+    evaluate_transformer_agent(model, model_params, training_params, log_dir, num_rounds=args.num_rounds, num_matches=args.num_matches)
     
     return model, history
 
@@ -1016,6 +1016,8 @@ if __name__ == "__main__":
                         help="Number of games for dataset generation (default: 2000)")
     parser.add_argument("--num_rounds", type=int, default=100,
                         help="Number of rounds per game (default: 100)")
+    parser.add_argument("--num_matches", type=int, default=20,
+                        help="Number of matches per opponent for evaluation (default: 20)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     

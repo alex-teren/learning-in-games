@@ -65,9 +65,8 @@ except NameError:  # running inside Jupyter
 
 sys.path.append(str(repo_root))
 
-# Import strategies directly to avoid gymnasium dependency
-sys.path.append(str(repo_root / "env"))
-from strategies import (
+# Import strategies directly
+from env.strategies import (
     TitForTat,
     AlwaysCooperate,
     AlwaysDefect,

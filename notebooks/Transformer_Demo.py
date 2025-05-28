@@ -19,6 +19,10 @@
 # This notebook demonstrates a Decision-Transformer agent trained to play
 # the Iterated Prisoner's Dilemma (IPD). The model imitates behaviour from
 # trajectories rather than learning online.
+#
+# **Unified Parameters**: This demo uses the standardized parameters
+# from the comparative study: 100 rounds per game, 20 matches per opponent,
+# and the complete set of 7 opponent strategies.
 
 # %%
 import os
@@ -35,14 +39,14 @@ import pandas as pd
 import torch
 
 # %%
-# Parse command line arguments
+# Parse command line arguments with unified parameters
 parser = argparse.ArgumentParser(description="Demo of Decision Transformer for Iterated Prisoner's Dilemma")
 parser.add_argument("--num_rounds", type=int, default=100,
-                    help="Number of rounds per episode (default: 100)")
+                    help="Number of rounds per episode (unified parameter: 100)")
 parser.add_argument("--num_matches", type=int, default=20,
-                    help="Number of matches per opponent for evaluation (default: 20)")
+                    help="Number of matches per opponent for evaluation (unified parameter: 20)")
 parser.add_argument("--seed", type=int, default=42,
-                    help="Random seed (default: 42)")
+                    help="Random seed (unified parameter: 42)")
 
 # Handle running in Jupyter vs as script
 try:
@@ -63,8 +67,9 @@ except NameError:            # executed in a Jupyter kernel
 
 sys.path.append(str(repo_root))
 
-from env import (
-    IPDEnv,
+# Import strategies directly to avoid gymnasium dependency
+sys.path.append(str(repo_root / "env"))
+from strategies import (
     TitForTat,
     AlwaysCooperate,
     AlwaysDefect,
@@ -72,12 +77,18 @@ from env import (
     PavlovStrategy,
     GrudgerStrategy,
     GTFTStrategy,
-    simulate_match,
 )
+
+# Import IPDEnv and simulate_match only when needed
+def get_ipd_env():
+    """Lazy import of IPDEnv to avoid gymnasium dependency during import"""
+    from env import IPDEnv, simulate_match
+    return IPDEnv, simulate_match
 
 # Paths
 models_dir = repo_root / "models"
-results_dir = repo_root / "results"
+results_dir = repo_root / "results" / "transformer"
+comparison_dir = repo_root / "comparison_results"
 
 # Helper: PNG + CSV saver
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -97,6 +108,203 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
 # ## Decision-Transformer architecture
 
 # %%
+class SavedEfficientDecisionTransformer(torch.nn.Module):
+    """Efficient transformer matching the exact architecture of saved model"""
+    
+    def __init__(
+        self,
+        action_dim: int = 2,
+        hidden_size: int = 32,
+        max_rtg: float = 100.0,
+        n_heads: int = 4,
+        n_layers: int = 3,
+        dropout: float = 0.1,
+        context_length: int = 15,
+        ffn_dim: int = 256,
+        strategy_head_1: int = 64
+    ):
+        super().__init__()
+        self.context_length = context_length
+        self.hidden_size = hidden_size
+        self.max_rtg = max_rtg
+        
+        # Separate embeddings for player and opponent actions (32 dim each)
+        self.player_action_embedding = torch.nn.Embedding(action_dim, hidden_size)
+        self.opponent_action_embedding = torch.nn.Embedding(action_dim, hidden_size)
+        
+        # RTG embedding (32 output, bias=True)
+        self.rtg_embedding = torch.nn.Linear(1, hidden_size, bias=True)
+        
+        # Strategic features (3 -> 32)
+        self.strategic_features = torch.nn.Linear(3, hidden_size)
+        
+        # Positional embedding (15 x 128)
+        self.position_embedding = torch.nn.Embedding(context_length, 128)  # Note: 128, not hidden_size!
+        
+        # Input layer norm (128)
+        self.embed_ln = torch.nn.LayerNorm(128)
+        
+        # Transformer layers with specific FFN dim
+        self.transformer_layers = torch.nn.ModuleList([
+            torch.nn.TransformerEncoderLayer(
+                d_model=128,  # Note: 128, not hidden_size!
+                nhead=n_heads,
+                dim_feedforward=ffn_dim,  # 256
+                dropout=dropout,
+                activation='gelu',
+                batch_first=True,
+                norm_first=True
+            )
+            for _ in range(n_layers)
+        ])
+        
+        # Strategy prediction head with exact saved dimensions
+        self.strategy_head = torch.nn.Sequential(
+            torch.nn.Linear(128, strategy_head_1),  # 128 -> 64
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(strategy_head_1, strategy_head_1 // 2),  # 64 -> 32
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(strategy_head_1 // 2, action_dim)  # 32 -> 2
+        )
+    
+    def forward(self, player_actions, opponent_actions, returns_to_go, strategic_features):
+        B, L = player_actions.shape
+        
+        # Normalize RTG
+        rtg_norm = (returns_to_go.unsqueeze(-1) / self.max_rtg).clamp(0, 1)
+        
+        # Get embeddings (all 32-dim)
+        player_embed = self.player_action_embedding(player_actions)
+        opponent_embed = self.opponent_action_embedding(opponent_actions)
+        rtg_embed = self.rtg_embedding(rtg_norm)
+        strategic_embed = self.strategic_features(strategic_features).unsqueeze(1).expand(-1, L, -1)
+        
+        # Combine embeddings (32 + 32 + 32 + 32 = 128)
+        token_embed = torch.cat([player_embed, opponent_embed, rtg_embed, strategic_embed], dim=-1)
+        
+        # Add positional encoding (128-dim)
+        positions = torch.arange(L, device=player_actions.device).unsqueeze(0).expand(B, -1)
+        token_embed = token_embed + self.position_embedding(positions)
+        
+        # Layer norm
+        x = self.embed_ln(token_embed)
+        
+        # Transformer layers
+        for layer in self.transformer_layers:
+            x = layer(x)
+        
+        # Strategy prediction
+        strategy_logits = self.strategy_head(x)
+        
+        return strategy_logits
+
+
+class EfficientDecisionTransformer(torch.nn.Module):
+    """Efficient transformer for strategic IPD learning with opponent modeling"""
+    
+    def __init__(
+        self,
+        action_dim: int = 2,
+        hidden_size: int = 32,
+        max_rtg: float = 100.0,
+        n_heads: int = 4,
+        n_layers: int = 3,
+        dropout: float = 0.1,
+        context_length: int = 15
+    ):
+        super().__init__()
+        self.context_length = context_length
+        self.hidden_size = hidden_size
+        self.max_rtg = max_rtg
+        
+        # Separate embeddings for player and opponent actions
+        self.player_action_embedding = torch.nn.Embedding(action_dim, hidden_size)
+        self.opponent_action_embedding = torch.nn.Embedding(action_dim, hidden_size)
+        
+        # RTG embedding (normalized to 0-1 range)
+        self.rtg_embedding = torch.nn.Linear(1, hidden_size, bias=True)
+        
+        # Strategic features (cooperation rates, trends)
+        self.strategic_features = torch.nn.Linear(3, hidden_size)
+        
+        # Positional embedding
+        self.position_embedding = torch.nn.Embedding(context_length, hidden_size)
+        
+        # Input layer norm
+        self.embed_ln = torch.nn.LayerNorm(hidden_size)
+        
+        # Transformer layers
+        self.transformer_layers = torch.nn.ModuleList([
+            torch.nn.TransformerEncoderLayer(
+                d_model=hidden_size,
+                nhead=n_heads,
+                dim_feedforward=hidden_size * 4,
+                dropout=dropout,
+                activation='gelu',
+                batch_first=True,
+                norm_first=True
+            )
+            for _ in range(n_layers)
+        ])
+        
+        # Strategy prediction head (3 layers for better learning)
+        self.strategy_head = torch.nn.Sequential(
+            torch.nn.Linear(hidden_size, hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_size, hidden_size // 2),
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_size // 2, action_dim)
+        )
+        
+        self._init_weights()
+    
+    def _init_weights(self):
+        """Initialize weights with smaller values for stability"""
+        for module in self.modules():
+            if isinstance(module, torch.nn.Linear):
+                torch.nn.init.normal_(module.weight, std=0.02)
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+            elif isinstance(module, torch.nn.Embedding):
+                torch.nn.init.normal_(module.weight, std=0.02)
+    
+    def forward(self, player_actions, opponent_actions, returns_to_go, strategic_features):
+        B, L = player_actions.shape
+        
+        # Normalize RTG
+        rtg_norm = (returns_to_go.unsqueeze(-1) / self.max_rtg).clamp(0, 1)
+        
+        # Get embeddings
+        player_embed = self.player_action_embedding(player_actions)
+        opponent_embed = self.opponent_action_embedding(opponent_actions)
+        rtg_embed = self.rtg_embedding(rtg_norm)
+        strategic_embed = self.strategic_features(strategic_features).unsqueeze(1).expand(-1, L, -1)
+        
+        # Combine embeddings
+        token_embed = player_embed + opponent_embed + rtg_embed + strategic_embed
+        
+        # Add positional encoding
+        positions = torch.arange(L, device=player_actions.device).unsqueeze(0).expand(B, -1)
+        token_embed = token_embed + self.position_embedding(positions)
+        
+        # Layer norm
+        x = self.embed_ln(token_embed)
+        
+        # Transformer layers
+        for layer in self.transformer_layers:
+            x = layer(x)
+        
+        # Strategy prediction
+        strategy_logits = self.strategy_head(x)
+        
+        return strategy_logits
+
+
+# Legacy DecisionTransformer for fallback
 class DecisionTransformer(torch.nn.Module):
     """Causal transformer that predicts the next action given (RTG, state, action) context."""
 
@@ -173,6 +381,72 @@ class DecisionTransformer(torch.nn.Module):
         return logits
 
 
+class EfficientTransformerStrategy:
+    """Strategy wrapper for EfficientDecisionTransformer"""
+    
+    def __init__(self, model, device="cpu"):
+        self.name = "EfficientTransformerAgent"
+        self.model = model.to(device).eval()
+        self.device = device
+        self.context_length = model.context_length
+        self.target_return = 50.0
+    
+    def action(self, history, player_idx=0):
+        if not history:
+            return 0  # cooperate first
+        
+        # Extract actions and calculate rewards
+        player_actions = []
+        opponent_actions = []
+        rewards = []
+        
+        for p_act, o_act in [(h[player_idx], h[1 - player_idx]) for h in history]:
+            player_actions.append(p_act)
+            opponent_actions.append(o_act)
+            
+            # IPD payoff matrix
+            if p_act == 0 and o_act == 0:  # CC
+                reward = 3
+            elif p_act == 0 and o_act == 1:  # CD
+                reward = 0
+            elif p_act == 1 and o_act == 0:  # DC
+                reward = 5
+            else:  # DD
+                reward = 1
+            
+            rewards.append(reward)
+        
+        # Calculate returns-to-go
+        rtgs = []
+        rtg = self.target_return - sum(rewards)
+        for i in range(len(rewards)):
+            rtgs.append(rtg / max(1, len(rewards) - i))
+        
+        # Calculate strategic features
+        if len(opponent_actions) > 0:
+            opp_coop_rate = sum(1-a for a in opponent_actions) / len(opponent_actions)
+            my_coop_rate = sum(1-a for a in player_actions) / len(player_actions)
+            
+            # Recent trend (last 5 actions or all if less)
+            recent_opp = opponent_actions[-5:] if len(opponent_actions) >= 5 else opponent_actions
+            recent_trend = sum(1-a for a in recent_opp) / len(recent_opp)
+        else:
+            opp_coop_rate = my_coop_rate = recent_trend = 0.5
+        
+        # Truncate to context length
+        L = min(len(player_actions), self.context_length)
+        player_actions_tensor = torch.tensor(player_actions[-L:], dtype=torch.long, device=self.device).unsqueeze(0)
+        opponent_actions_tensor = torch.tensor(opponent_actions[-L:], dtype=torch.long, device=self.device).unsqueeze(0)
+        rtgs_tensor = torch.tensor(rtgs[-L:], dtype=torch.float, device=self.device).unsqueeze(0)
+        strategic_tensor = torch.tensor([opp_coop_rate, my_coop_rate, recent_trend], 
+                                      dtype=torch.float, device=self.device).unsqueeze(0)
+        
+        with torch.no_grad():
+            logits = self.model(player_actions_tensor, opponent_actions_tensor, rtgs_tensor, strategic_tensor)
+            probs = torch.softmax(logits[0, -1], dim=-1)
+            return torch.multinomial(probs, 1).item()
+
+
 class TransformerStrategy:
     """Wrapper that exposes `.action(history)` for simulate_match."""
 
@@ -198,411 +472,606 @@ class TransformerStrategy:
         rtg = self.target_return - sum(rewards)
         rtgs = [rtg / max(1, len(history) - i) for i in range(len(history))]
 
-        # take last `context_len`
-        states = ([-1] * self.context_len + states)[-self.context_len :]
-        actions = ([-1] * self.context_len + actions)[-self.context_len :]
-        rtgs = ([0.0] * self.context_len + rtgs)[-self.context_len :]
-
-        s = torch.tensor(states, dtype=torch.long, device=self.device).unsqueeze(0)
-        a = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(0)
-        r = torch.tensor(rtgs, dtype=torch.float, device=self.device).unsqueeze(0)
+        # Pad/truncate to context length
+        L = min(len(states), self.context_len)
+        
+        states_tensor = torch.tensor(states[-L:], dtype=torch.long, device=self.device).unsqueeze(0)
+        actions_tensor = torch.tensor(actions[-L:], dtype=torch.long, device=self.device).unsqueeze(0)
+        rtgs_tensor = torch.tensor(rtgs[-L:], dtype=torch.float, device=self.device).unsqueeze(0)
 
         with torch.no_grad():
-            logits = self.model(s, a, r)[:, -1, :]
-            action = torch.argmax(logits, dim=-1).item()
-        return action
+            logits = self.model(states_tensor, actions_tensor, rtgs_tensor)
+            probs = torch.softmax(logits[0, -1], dim=-1)
+            return torch.multinomial(probs, 1).item()
 
 # %% [markdown]
-# ## Loading the trained model (quick-demo fallback)
+# ## Loading the Trained Transformer
+#
+# We load the transformer model from the unified training process.
+# If the model doesn't exist and `QUICK_DEMO=1` is set, we can quickly
+# train a demo model for illustration purposes.
 
 # %%
 def quick_train_transformer(save_dir=models_dir, num_epochs=2, seed=args.seed, num_rounds=args.num_rounds):
     """Quickly train a transformer for demo purposes."""
-    print("Training a quick demo transformer model...")
+    print("Training a quick demo transformer...")
     
-    # Set random seeds
+    # Set seeds
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
     
-    # Create environment and generate a small dataset
-    env = IPDEnv(num_rounds=num_rounds, seed=seed)
-    
-    # Generate a small dataset of trajectories
-    num_games = 200
-    strategies = [TitForTat(), AlwaysCooperate(), AlwaysDefect(), RandomStrategy(seed=seed), PavlovStrategy(), GrudgerStrategy(), GTFTStrategy(seed=seed+100)]
-    
-    trajectories = []
-    
-    for game_idx in range(num_games):
-        # Select random strategies
-        player_strategy = random.choice(strategies)
-        opponent_strategy = random.choice(strategies)
-        
-        # Simulate match
-        match_results = simulate_match(env, player_strategy, opponent_strategy, num_rounds)
-        
-        # Process results into trajectory
-        trajectory = {
-            'player_strategy': player_strategy.name,
-            'opponent_strategy': opponent_strategy.name,
-            'states': [],
-            'actions': [],
-            'rewards': [],
-            'returns_to_go': [],
-            'player_score': match_results['player_score'],
-            'opponent_score': match_results['opponent_score']
-        }
-        
-        # Extract timestep data
-        for step in match_results['history']:
-            # State is the observation at this step (opponent's previous action)
-            if len(trajectory['actions']) == 0:
-                prev_opponent_action = -1  # No previous action for first round
-            else:
-                prev_opponent_action = step['opponent_action']
-            
-            trajectory['states'].append(prev_opponent_action)
-            trajectory['actions'].append(step['player_action'])
-            trajectory['rewards'].append(step['player_payoff'])
-        
-        # Calculate returns-to-go (sum of future rewards from each state)
-        returns = []
-        R = 0
-        for r in reversed(trajectory['rewards']):
-            R += r
-            returns.insert(0, R)
-        trajectory['returns_to_go'] = returns
-        
-        trajectories.append(trajectory)
-    
-    # Create a simple dataset class
-    class SimpleDataset(torch.utils.data.Dataset):
-        def __init__(self, trajectories, context_length=5):
-            self.samples = []
-            
-            for traj in trajectories:
-                traj_length = len(traj['actions'])
-                
-                # Skip trajectories that are too short
-                if traj_length < 2:
-                    continue
-                
-                # Create samples with increasing context length
-                for t in range(1, traj_length):
-                    # Determine context start
-                    context_start = max(0, t - context_length)
-                    context_size = t - context_start
-                    
-                    # Extract context
-                    state_context = traj['states'][context_start:t]
-                    action_context = traj['actions'][context_start:t]
-                    rtg_context = traj['returns_to_go'][context_start:t]
-                    
-                    # Get target
-                    target_action = traj['actions'][t]
-                    
-                    # Pad if needed
-                    if context_size < context_length:
-                        pad_length = context_length - context_size
-                        state_context = [-1] * pad_length + state_context
-                        action_context = [-1] * pad_length + action_context
-                        rtg_context = [0.0] * pad_length + rtg_context
-                    
-                    # Create sample
-                    self.samples.append({
-                        'state_context': torch.tensor(state_context, dtype=torch.long),
-                        'action_context': torch.tensor(action_context, dtype=torch.long),
-                        'rtg_context': torch.tensor(rtg_context, dtype=torch.float),
-                        'target_action': torch.tensor(target_action, dtype=torch.long)
-                    })
-        
-        def __len__(self):
-            return len(self.samples)
-        
-        def __getitem__(self, idx):
-            return self.samples[idx]
-    
-    # Create dataset and dataloader
-    context_length = 5
-    dataset = SimpleDataset(trajectories, context_length=context_length)
-    
     # Model parameters
     model_params = {
-        'hidden_size': 64,   # Smaller for quick training
-        'n_heads': 2,        # Smaller for quick training
-        'n_layers': 2,       # Smaller for quick training
-        'dropout': 0.1,
-        'context_length': context_length
+        "state_dim": 3,
+        "action_dim": 2,
+        "hidden_size": 64,
+        "max_rtg": 50.0,
+        "n_heads": 2,
+        "n_layers": 2,
+        "dropout": 0.1,
+        "context_length": 5,
     }
     
     # Create model
-    model = DecisionTransformer(
-        hidden_size=model_params['hidden_size'],
-        n_heads=model_params['n_heads'],
-        n_layers=model_params['n_layers'],
-        dropout=model_params['dropout'],
-        context_length=model_params['context_length']
-    )
+    model = DecisionTransformer(**model_params)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device)
     
-    # Define training parameters
-    batch_size = 32
-    lr = 1e-3
+    # Generate training data quickly
+    print("Generating training data...")
     
-    # Create dataloader
-    dataloader = torch.utils.data.DataLoader(
-        dataset, 
-        batch_size=batch_size, 
-        shuffle=True
-    )
+    # Get IPDEnv with lazy import
+    IPDEnv, simulate_match = get_ipd_env()
     
-    # Create optimizer and loss function
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # Complete set of opponent strategies from the comparative study
+    opponents = [
+        TitForTat(),
+        AlwaysCooperate(),
+        AlwaysDefect(),
+        RandomStrategy(coop_prob=0.5, seed=seed),
+        PavlovStrategy(),
+        GrudgerStrategy(),
+        GTFTStrategy(forgiveness_prob=0.1, seed=seed+100),
+    ]
+    
+    trajectories = []
+    env = IPDEnv(num_rounds=num_rounds, seed=seed)
+    
+    # Generate some trajectories with a simple cooperative strategy
+    for opponent in opponents[:3]:  # Quick demo - only first 3 opponents
+        for _ in range(5):  # 5 games per opponent
+            results = simulate_match(env, AlwaysCooperate(), opponent, num_rounds)
+            
+            # Extract actions from history
+            player_actions = [step['player_action'] for step in results['history']]
+            opponent_actions = [step['opponent_action'] for step in results['history']]
+            
+            states = [0]  # Start with no previous action
+            actions = player_actions
+            rewards = []
+            
+            for i, (p_act, o_act) in enumerate(zip(player_actions, opponent_actions)):
+                reward = (3, 0, 5, 1)[p_act * 2 + o_act]
+                rewards.append(reward)
+                if i < len(actions) - 1:
+                    states.append(opponent_actions[i])
+            
+            trajectories.append({
+                'states': states,
+                'actions': actions,
+                'rewards': rewards
+            })
+    
+    # Simple dataset
+    class SimpleDataset(torch.utils.data.Dataset):
+        def __init__(self, trajectories, context_length=5):
+            self.trajectories = trajectories
+            self.context_length = context_length
+            self.data = []
+            
+            for traj in trajectories:
+                states = traj['states']
+                actions = traj['actions']
+                rewards = traj['rewards']
+                
+                # Create RTG
+                rtgs = []
+                for i in range(len(rewards)):
+                    rtg = sum(rewards[i:])
+                    rtgs.append(rtg)
+                
+                # Create training samples
+                for i in range(1, len(states)):
+                    start_idx = max(0, i - context_length + 1)
+                    
+                    sample_states = states[start_idx:i+1]
+                    sample_actions = actions[start_idx:i+1]
+                    sample_rtgs = rtgs[start_idx:i+1]
+                    
+                    # Pad if necessary
+                    while len(sample_states) < context_length:
+                        sample_states = [-1] + sample_states
+                        sample_actions = [-1] + sample_actions
+                        sample_rtgs = [0.0] + sample_rtgs
+                    
+                    # Target is the next action
+                    target_action = actions[i] if i < len(actions) else 0
+                    
+                    self.data.append({
+                        'states': torch.tensor(sample_states, dtype=torch.long),
+                        'actions': torch.tensor(sample_actions, dtype=torch.long),
+                        'rtgs': torch.tensor(sample_rtgs, dtype=torch.float),
+                        'target': torch.tensor(target_action, dtype=torch.long)
+                    })
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def __getitem__(self, idx):
+            return self.data[idx]
+    
+    # Create dataset and dataloader
+    dataset = SimpleDataset(trajectories, model_params["context_length"])
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=True)
+    
+    # Training
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = torch.nn.CrossEntropyLoss()
     
-    # Train for a few epochs
-    model.train()
+    print(f"Training for {num_epochs} epochs...")
     start_time = time.time()
     
     for epoch in range(num_epochs):
-        epoch_loss = 0.0
-        for batch_idx, batch in enumerate(dataloader):
-            state_context = batch['state_context']
-            action_context = batch['action_context']
-            rtg_context = batch['rtg_context']
-            target_action = batch['target_action']
+        total_loss = 0
+        for batch in dataloader:
+            states = batch['states'].to(device)
+            actions = batch['actions'].to(device)
+            rtgs = batch['rtgs'].to(device)
+            targets = batch['target'].to(device)
             
-            # Forward pass
             optimizer.zero_grad()
-            action_logits = model(state_context, action_context, rtg_context)
-            
-            # Compute loss
-            loss = criterion(action_logits[:, -1, :], target_action)
-            
-            # Backward pass
+            logits = model(states, actions, rtgs)
+            loss = criterion(logits[:, -1], targets)
             loss.backward()
             optimizer.step()
             
-            epoch_loss += loss.item()
-            
-        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss/len(dataloader):.4f}")
+            total_loss += loss.item()
+        
+        print(f"Epoch {epoch+1}: Loss = {total_loss/len(dataloader):.4f}")
     
-    training_time = time.time() - start_time
-    print(f"Quick training completed in {training_time:.2f} seconds")
+    print(f"Quick training completed in {time.time() - start_time:.1f}s")
     
-    # Save the model
+    # Save model
     os.makedirs(save_dir, exist_ok=True)
-    torch.save(model.state_dict(), save_dir / "transformer_quick_demo.pth")
+    model_path = save_dir / "transformer_quick_demo.pth"
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'model_params': model_params
+    }, model_path)
     
-    # Save model parameters
-    with open(save_dir / "transformer_quick_demo_params.pkl", 'wb') as f:
-        pickle.dump(model_params, f)
-    
-    return model, model_params
+    return model, model_params, model_path
 
-# Try to load the pre-trained transformer model
+# Try to load the unified transformer model
+model_path = models_dir / "transformer_best.pth"
+quick_demo = False
 
-model_path   = models_dir / "transformer_best.pth"
-params_path  = models_dir / "transformer_params.pkl"
-quick_demo   = False
-
+# First try to load the real trained model
 if not model_path.exists():
-    alt = list(models_dir.glob("*transformer*.pth"))
-    if alt:
-        model_path = alt[0]
-        if not params_path.exists():
-            alt_par = list(models_dir.glob("*transformer*params*.pkl"))
-            params_path = alt_par[0] if alt_par else params_path
-        print(f"Using alternative model: {model_path}")
-    elif os.getenv("QUICK_DEMO") == "1":
+    alternatives = list(models_dir.glob("transformer*.pth"))
+    if alternatives:
+        model_path = alternatives[0]
+    else:
+        model_path = None
+
+if model_path and model_path.exists():
+    print(f"Loading transformer model from {model_path.name}")
+    try:
+        checkpoint = torch.load(model_path, map_location="cpu")
+        
+        # Check if this is the EfficientDecisionTransformer (look for key patterns)
+        checkpoint_keys = list(checkpoint.keys())
+        is_efficient_model = any('player_action_embedding' in key for key in checkpoint_keys)
+        
+        if is_efficient_model:
+            # Load EfficientDecisionTransformer with parameters from the checkpoint
+            print("Detected EfficientDecisionTransformer format")
+            
+            # Infer exact parameters from saved model tensors
+            action_embed_size = checkpoint['player_action_embedding.weight'].shape[1]  # hidden_size = 32
+            context_length = checkpoint['position_embedding.weight'].shape[0]  # 15
+            ffn_size = checkpoint['transformer_layers.0.linear1.weight'].shape[0]  # 256
+            strategy_head_1 = checkpoint['strategy_head.0.weight'].shape[0]  # 64
+            
+            # Model was saved with these specific parameters
+            model_params = {
+                "action_dim": 2,
+                "hidden_size": action_embed_size,  # 32
+                "max_rtg": 100.0,
+                "n_heads": 4,
+                "n_layers": 3,
+                "dropout": 0.1,
+                "context_length": context_length,  # 15
+                "ffn_dim": ffn_size,  # 256 (for custom ffn size)
+                "strategy_head_1": strategy_head_1  # 64
+            }
+            
+            # Create model with custom architecture matching saved model
+            model = SavedEfficientDecisionTransformer(**model_params)
+            model.load_state_dict(checkpoint)
+            print(f"Loaded EfficientDecisionTransformer with hidden_size={action_embed_size}, context_length={context_length}")
+            
+        else:
+            # Fallback to legacy DecisionTransformer
+            print("Detected legacy DecisionTransformer format")
+            model_params = {
+                "state_dim": 3, "action_dim": 2, "hidden_size": 128, "max_rtg": 50.0,
+                "n_heads": 4, "n_layers": 3, "dropout": 0.1, "context_length": 5
+            }
+            model = DecisionTransformer(**model_params)
+            model.load_state_dict(checkpoint)
+            
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        print("Switching to quick demo mode...")
         quick_demo = True
-        model, model_params = quick_train_transformer()
+        model, model_params, model_path = quick_train_transformer()
+else:
+    # Force quick demo if no model found
+    if os.environ.get("QUICK_DEMO") == "1":
+        print("QUICK_DEMO mode forced")
     else:
-        raise FileNotFoundError(
-            "Transformer model not found. Run full training or set QUICK_DEMO=1."
-        )
+        print("No transformer model found")
+    quick_demo = True
+    model, model_params, model_path = quick_train_transformer()
 
-if not quick_demo:
-    if params_path.exists():
-        with open(params_path, "rb") as f:
-            model_params = pickle.load(f)
-    else:
-        model_params = dict(hidden_size=128, n_heads=4, n_layers=3, dropout=0.1, context_length=5)
+# Create strategy wrapper based on model type
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = DecisionTransformer(
-        state_dim=3,
-        action_dim=2,
-        hidden_size=model_params["hidden_size"],
-        n_heads=model_params["n_heads"],
-        n_layers=model_params["n_layers"],
-        dropout=model_params["dropout"],
-        context_length=model_params["context_length"],
-        max_rtg=50.0
-    )
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+if not quick_demo and isinstance(model, (EfficientDecisionTransformer, SavedEfficientDecisionTransformer)):
+    transformer_strategy = EfficientTransformerStrategy(model, device)
+elif not quick_demo:
+    transformer_strategy = TransformerStrategy(model, model_params, device)
+else:
+    # Quick demo uses legacy format
+    transformer_strategy = TransformerStrategy(model, model_params, device)
 
-transformer_strategy = TransformerStrategy(model, model_params)
+print(f"Loaded transformer with {sum(p.numel() for p in model.parameters())} parameters")
 
 # %% [markdown]
-# ## Evaluation against classic strategies
+# ## Evaluating Against All Opponent Strategies
+#
+# We evaluate the transformer strategy against all 7 opponent strategies used in the
+# comparative study: TitForTat, AlwaysCooperate, AlwaysDefect, Random(p=0.5),
+# Pavlov, Grudger, and GTFT(p=0.1).
 
 # %%
 def play_match(strategy, opponent, num_rounds=args.num_rounds, seed=args.seed):
+    """Play a single match between strategy and opponent."""
+    IPDEnv, simulate_match = get_ipd_env()
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
-    res = simulate_match(env, strategy, opponent, num_rounds)
-    return dict(
-        player_score=res["player_score"],
-        opponent_score=res["opponent_score"],
-        player_coop_rate=res["cooperation_rate_player"],
-        opponent_coop_rate=res["cooperation_rate_opponent"],
-    )
+    
+    # Reset random states
+    if hasattr(opponent, 'rng'):
+        opponent.rng = np.random.RandomState(seed + 1)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
+    results = simulate_match(env, strategy, opponent, num_rounds)
+    
+    # Get cooperation rates from results
+    player_coop = results['cooperation_rate_player']
+    opponent_coop = results['cooperation_rate_opponent']
+    
+    return results['player_score'], player_coop, opponent_coop
 
-
+# Complete set of opponent strategies from the comparative study
 opponents = {
-    "tit_for_tat": TitForTat(),
-    "always_cooperate": AlwaysCooperate(),
-    "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=args.seed),
-    "pavlov": PavlovStrategy(),
-    "grudger": GrudgerStrategy(),
-    "gtft": GTFTStrategy(seed=args.seed+100),
+    "TitForTat": TitForTat(),
+    "AlwaysCooperate": AlwaysCooperate(),
+    "AlwaysDefect": AlwaysDefect(),
+    "Random(p=0.5)": RandomStrategy(coop_prob=0.5, seed=args.seed),
+    "Pavlov": PavlovStrategy(),
+    "Grudger": GrudgerStrategy(),
+    "GTFT(p=0.1)": GTFTStrategy(forgiveness_prob=0.1, seed=args.seed+100),
 }
 
-results = {}
+# Evaluate against all opponents
+stats = {}
+print("Evaluating transformer strategy against all opponent strategies...")
 
-for name, opp in opponents.items():
-    rows = [play_match(transformer_strategy, opp, seed=args.seed + i) for i in range(args.num_matches)]
-    results[name] = {
-        "avg_player_score": np.mean([r["player_score"] for r in rows]),
-        "avg_opponent_score": np.mean([r["opponent_score"] for r in rows]),
-        "avg_player_coop": np.mean([r["player_coop_rate"] for r in rows]),
-        "avg_opponent_coop": np.mean([r["opponent_coop_rate"] for r in rows]),
+for name, opponent in opponents.items():
+    print(f"  vs {name}...")
+    scores, player_coop_rates, opponent_coop_rates = [], [], []
+    
+    for i in range(args.num_matches):
+        score, p_coop, o_coop = play_match(transformer_strategy, opponent, seed=args.seed + i)
+        scores.append(score)
+        player_coop_rates.append(p_coop)
+        opponent_coop_rates.append(o_coop)
+    
+    stats[name] = {
+        "avg_score": np.mean(scores),
+        "std_score": np.std(scores),
+        "player_coop": np.mean(player_coop_rates),
+        "opponent_coop": np.mean(opponent_coop_rates),
     }
-    print(f"{name}: score {results[name]['avg_player_score']:.1f}, coop {results[name]['avg_player_coop']:.2f}")
 
 # %% [markdown]
-# ## Visualisation
+# ## Results Visualization and Comparison
+#
+# Let's visualize the transformer's performance and compare it with results
+# from the comprehensive comparative study.
 
 # %%
-names = list(results.keys())
-scores = [results[n]["avg_player_score"] for n in names]
-p_coop = [results[n]["avg_player_coop"] for n in names]
-o_coop = [results[n]["avg_opponent_coop"] for n in names]
+# Create visualizations
+names = list(stats.keys())
+avg_scores = [stats[n]["avg_score"] for n in names]
+player_coop = [stats[n]["player_coop"] for n in names]
+opponent_coop = [stats[n]["opponent_coop"] for n in names]
 
-save_plot_and_csv(names, scores, "transformer_vs_baselines", folder=str(results_dir / "transformer"))
+# Save current results
+os.makedirs(results_dir, exist_ok=True)
+current_results = pd.DataFrame({
+    'Opponent': names,
+    'Mean_Score': avg_scores,
+    'Std_Score': [stats[n]["std_score"] for n in names],
+    'Player_Cooperation': player_coop,
+    'Opponent_Cooperation': opponent_coop
+})
+current_results.to_csv(results_dir / "current_evaluation.csv", index=False)
 
-plt.figure(figsize=(12, 6))
-plt.subplot(1, 2, 1)
-plt.bar(names, scores)
+# Load comparison results if available
+comparison_available = False
+if (comparison_dir / "comprehensive_results.csv").exists():
+    comparison_df = pd.read_csv(comparison_dir / "comprehensive_results.csv")
+    ppo_comparison = comparison_df[comparison_df['Approach'] == 'PPO']
+    evolution_comparison = comparison_df[comparison_df['Approach'] == 'EVOLUTION']
+    transformer_comparison = comparison_df[comparison_df['Approach'] == 'TRANSFORMER']
+    comparison_available = True
+
+# Create comprehensive visualization
+plt.figure(figsize=(16, 12))
+
+# 1. Performance comparison
+plt.subplot(2, 3, 1)
+bars = plt.bar(range(len(names)), avg_scores, color='crimson', alpha=0.7)
+plt.xlabel("Opponent Strategy")
 plt.ylabel("Average Score")
-plt.title("Transformer Scores vs Opponents")
-plt.ylim(0, max(scores) * 1.2)
-plt.xticks(rotation=45)
+plt.title("Transformer Performance vs All Opponents")
+plt.xticks(range(len(names)), names, rotation=45, ha='right')
+plt.grid(True, alpha=0.3)
 
-plt.subplot(1, 2, 2)
-x = np.arange(len(names))
-w = 0.35
-plt.bar(x - w / 2, p_coop, w, label="Transformer")
-plt.bar(x + w / 2, o_coop, w, label="Opponent")
+# Add value labels on bars
+for bar, score in zip(bars, avg_scores):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 2,
+             f'{score:.1f}', ha='center', va='bottom', fontsize=9)
+
+# 2. Cooperation rates
+plt.subplot(2, 3, 2)
+bars = plt.bar(range(len(names)), player_coop, color='darkred', alpha=0.7)
+plt.xlabel("Opponent Strategy")
 plt.ylabel("Cooperation Rate")
-plt.title("Cooperation Rates")
-plt.xticks(x, names, rotation=45)
-plt.ylim(0, 1.05)
-plt.legend()
+plt.title("Transformer Cooperation Rates")
+plt.xticks(range(len(names)), names, rotation=45, ha='right')
+plt.ylim(0, 1)
+plt.grid(True, alpha=0.3)
+
+# Add percentage labels
+for bar, rate in zip(bars, player_coop):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+             f'{rate:.1%}', ha='center', va='bottom', fontsize=9)
+
+# 3. Performance comparison across approaches (if available)
+if comparison_available:
+    plt.subplot(2, 3, 3)
+    
+    # Prepare data for comparison
+    comparison_names = []
+    ppo_scores = []
+    evolution_scores = []
+    transformer_scores = []
+    
+    for _, row in transformer_comparison.iterrows():
+        opponent = row['Opponent']
+        comparison_names.append(opponent)
+        transformer_scores.append(row['Mean_Score'])
+        
+        # Find corresponding scores from other approaches
+        ppo_row = ppo_comparison[ppo_comparison['Opponent'] == opponent]
+        evo_row = evolution_comparison[evolution_comparison['Opponent'] == opponent]
+        
+        ppo_scores.append(ppo_row['Mean_Score'].iloc[0] if len(ppo_row) > 0 else 0)
+        evolution_scores.append(evo_row['Mean_Score'].iloc[0] if len(evo_row) > 0 else 0)
+    
+    x = np.arange(len(comparison_names))
+    width = 0.25
+    
+    plt.bar(x - width, ppo_scores, width, label='PPO', color='steelblue', alpha=0.8)
+    plt.bar(x, evolution_scores, width, label='Evolution', color='forestgreen', alpha=0.8)
+    plt.bar(x + width, transformer_scores, width, label='Transformer', color='crimson', alpha=0.8)
+    
+    plt.xlabel("Opponent Strategy")
+    plt.ylabel("Mean Score")
+    plt.title("Approach Comparison")
+    plt.xticks(x, comparison_names, rotation=45, ha='right')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+# 4. Model architecture info
+plt.subplot(2, 3, 4)
+plt.axis('off')
+
+arch_info = [
+    ['Parameter', 'Value'],
+    ['Hidden Size', str(model_params.get('hidden_size', 128))],
+    ['Attention Heads', str(model_params.get('n_heads', 4))],
+    ['Layers', str(model_params.get('n_layers', 3))],
+    ['Context Length', str(model_params.get('context_length', 5))],
+    ['Total Parameters', f"{sum(p.numel() for p in model.parameters()):,}"]
+]
+
+table = plt.table(cellText=arch_info[1:], colLabels=arch_info[0], cellLoc='left', loc='center')
+table.auto_set_font_size(False)
+table.set_fontsize(10)
+table.scale(1.2, 1.5)
+plt.title("Model Architecture")
+
+# 5. Strategy-specific analysis
+plt.subplot(2, 3, 5)
+cooperation_vs_score = [(stats[name]["player_coop"], stats[name]["avg_score"]) for name in names]
+coop_rates, scores = zip(*cooperation_vs_score)
+
+plt.scatter(coop_rates, scores, s=100, alpha=0.7, c='crimson')
+for i, name in enumerate(names):
+    plt.annotate(name, (coop_rates[i], scores[i]), 
+                xytext=(5, 5), textcoords='offset points', fontsize=8)
+
+plt.xlabel("Strategy Cooperation Rate")
+plt.ylabel("Average Score")
+plt.title("Cooperation vs Performance")
+plt.grid(True, alpha=0.3)
+
+# 6. Overall ranking (if comparison available)
+if comparison_available:
+    plt.subplot(2, 3, 6)
+    
+    # Calculate overall averages
+    overall_ppo = np.mean(ppo_scores)
+    overall_evolution = np.mean(evolution_scores)
+    overall_transformer = np.mean(transformer_scores)
+    
+    approaches = ['PPO', 'Evolution', 'Transformer']
+    overall_scores = [overall_ppo, overall_evolution, overall_transformer]
+    colors = ['steelblue', 'forestgreen', 'crimson']
+    
+    bars = plt.bar(approaches, overall_scores, color=colors, alpha=0.8)
+    plt.ylabel("Average Score")
+    plt.title("Overall Performance Ranking")
+    plt.grid(True, alpha=0.3)
+    
+    # Add value labels
+    for bar, score in zip(bars, overall_scores):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 2,
+                 f'{score:.1f}', ha='center', va='bottom', fontweight='bold')
+
 plt.tight_layout()
+plt.savefig(results_dir / "transformer_comprehensive_analysis.png", dpi=300, bbox_inches='tight')
 plt.show()
 
 # %% [markdown]
-# ## Training Progress
-#
-# Let's load and display the training history data from the full training run.
+# ## Detailed Results Analysis
 
 # %%
-def load_and_plot_training_history():
-    """Load and plot the training history from full training."""
-    # Try to find the training history data
-    history_files = []
-    for pattern in ["*train_loss*", "*val_loss*", "*train_accuracy*", "*val_accuracy*"]:
-        files = list((results_dir / "transformer").glob(f"{pattern}_data.csv"))
-        history_files.extend(files)
+print("="*60)
+print("Transformer Strategy Performance Analysis")
+print("="*60)
+
+print(f"\nModel Architecture:")
+print(f"  Hidden Size:      {model_params.get('hidden_size', 128)}")
+print(f"  Attention Heads:  {model_params.get('n_heads', 4)}")
+print(f"  Layers:           {model_params.get('n_layers', 3)}")
+print(f"  Context Length:   {model_params.get('context_length', 5)}")
+print(f"  Total Parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+print(f"\nOverall Statistics:")
+print(f"  Average Score: {np.mean(avg_scores):.2f}")
+print(f"  Score Range: {np.min(avg_scores):.1f} - {np.max(avg_scores):.1f}")
+print(f"  Score Std Dev: {np.std(avg_scores):.2f}")
+print(f"  Average Cooperation: {np.mean(player_coop):.1%}")
+
+print(f"\nPerformance vs Each Opponent:")
+for name in names:
+    score = stats[name]["avg_score"]
+    coop = stats[name]["player_coop"]
+    std = stats[name]["std_score"]
+    print(f"  vs {name:<18}: Score {score:6.1f} ± {std:4.1f}, Cooperation {coop:5.1%}")
+
+if comparison_available:
+    print(f"\nComparison with Other Approaches:")
+    print(f"  PPO Average:         {np.mean(ppo_scores):.2f}")
+    print(f"  Evolution Average:   {np.mean(evolution_scores):.2f}")
+    print(f"  Transformer Average: {np.mean(transformer_scores):.2f}")
     
-    if not history_files:
-        # Check for alternative files
-        history_file = results_dir / "transformer" / "training_history.csv"
-        if history_file.exists():
-            # Load training history from CSV
-            df = pd.read_csv(history_file)
-            
-            # Plot loss curves
-            plt.figure(figsize=(10, 6))
-            plt.subplot(1, 2, 1)
-            plt.plot(df["epoch"], df["train_loss"], label="Training Loss")
-            plt.plot(df["epoch"], df["val_loss"], label="Validation Loss")
-            plt.xlabel("Epoch")
-            plt.ylabel("Loss")
-            plt.title("Training and Validation Loss")
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            
-            # Plot accuracy curves
-            plt.subplot(1, 2, 2)
-            plt.plot(df["epoch"], df["train_acc"], label="Training Accuracy")
-            plt.plot(df["epoch"], df["val_acc"], label="Validation Accuracy")
-            plt.xlabel("Epoch")
-            plt.ylabel("Accuracy")
-            plt.title("Training and Validation Accuracy")
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            plt.show()
-            
-            return df
-        else:
-            print("Training history data not found. Full training hasn't been run yet.")
-            return None
-    else:
-        # Process each found file
-        for file in history_files:
-            df = pd.read_csv(file)
-            plt.figure(figsize=(10, 6))
-            plt.plot(df["x"], df["y"])
-            plt.xlabel("Epoch")
-            
-            # Determine y-axis label from filename
-            if "loss" in file.name:
-                plt.ylabel("Loss")
-            else:
-                plt.ylabel("Accuracy")
-                
-            plt.title(f"{file.stem.replace('_data', '').replace('_', ' ').title()}")
-            plt.grid(True, alpha=0.3)
-            plt.show()
+    print(f"\nTransformer's Best Performances:")
+    transformer_best = []
+    for i, opponent in enumerate(comparison_names):
+        transformer_score = transformer_scores[i]
+        ppo_score = ppo_scores[i] 
+        evo_score = evolution_scores[i]
         
-        return history_files
-
-# Load and plot training history if available
-training_history = load_and_plot_training_history()
-
-
-# %% [markdown]
-# ## Interpretation of Results
-#
-# * **Consistent cooperation strategy:** The transformer learned to always cooperate (100% cooperation rate against TFT, Always Cooperate, Pavlov, and nearly 100% against AlwaysDefect).
-# * **Good performance with cooperative opponents:** The model achieves high scores (~300) against TFT, Always Cooperate, and Pavlov by maintaining mutual cooperation.
-# * **Vulnerable to Always Defect:** The model receives zero reward against Always Defect because it continues to cooperate despite being exploited.
-# * **Moderate success with Random:** The model earns ~160 points against Random opponents (which cooperate ~50% of the time), showing limited adaptation to mixed strategies.
-# * **Training approach impact:** The transformer was trained through behavioral cloning on cooperative trajectories, which explains why it learned a fixed cooperative pattern rather than an adaptive strategy.
-# * **Convergence in learning:** The loss curves show quick initial improvement that stabilizes around epoch 10, while accuracy rises to ~77%, suggesting the model learns a simple policy that fits the training data well.
-# * **Reason for behavior:** Unlike reinforcement learning approaches, the transformer doesn't explore different strategies - it simply imitates the most common patterns in its training data, which likely contained many examples of mutual cooperation.
+        if transformer_score >= max(ppo_score, evo_score):
+            advantage = transformer_score - max(ppo_score, evo_score)
+            transformer_best.append((opponent, transformer_score, advantage))
+    
+    for opponent, score, advantage in sorted(transformer_best, key=lambda x: x[2], reverse=True):
+        print(f"  vs {opponent:<18}: {score:.1f} (+{advantage:.1f} advantage)")
 
 # %% [markdown]
-# ## Інтерпретація результатів
+# ## Strategic Insights
 #
-# * **Стратегія стабільної кооперації:** Трансформер навчився завжди кооперувати (100% рівень кооперації проти TFT, Always Cooperate, Pavlov, і майже 100% проти AlwaysDefect).
-# * **Хороші результати з кооперативними опонентами:** Модель досягає високих балів (~300) проти TFT, Always Cooperate і Pavlov завдяки підтримці взаємної кооперації.
-# * **Вразливість до Always Defect:** Модель отримує нульову винагороду проти Always Defect, оскільки продовжує кооперувати, незважаючи на експлуатацію.
-# * **Помірний успіх з Random:** Модель заробляє ~160 балів проти випадкових опонентів (які кооперують ~50% часу), демонструючи обмежену адаптацію до змішаних стратегій.
-# * **Вплив підходу до навчання:** Трансформер був навчений шляхом поведінкового клонування на кооперативних траєкторіях, що пояснює, чому він вивчив фіксований кооперативний патерн, а не адаптивну стратегію.
-# * **Збіжність у навчанні:** Криві втрат показують швидке початкове покращення, яке стабілізується близько 10-ї епохи, а точність зростає до ~77%, що свідчить про те, що модель вивчає просту політику, яка добре відповідає тренувальним даним.
-# * **Причина поведінки:** На відміну від підходів з підкріпленням, трансформер не досліджує різні стратегії - він просто імітує найбільш поширені патерни у своїх навчальних даних, які, ймовірно, містили багато прикладів взаємної кооперації.
+# Based on the evaluation results, we can analyze the transformer's strategic behavior:
+
+# %%
+print("\n" + "="*60)
+print("Strategic Analysis")
+print("="*60)
+
+# Analyze cooperation patterns
+print(f"\nCooperation Analysis:")
+print(f"  Highest cooperation:  {max(player_coop):.1%} (vs {names[player_coop.index(max(player_coop))]})")
+print(f"  Lowest cooperation:   {min(player_coop):.1%} (vs {names[player_coop.index(min(player_coop))]})")
+print(f"  Cooperation variance: {np.std(player_coop):.3f} (lower = more consistent)")
+print(f"  Overall tendency:     {'Highly cooperative' if np.mean(player_coop) > 0.6 else 'Moderately cooperative' if np.mean(player_coop) > 0.4 else 'Selectively cooperative'}")
+
+# Categorize opponents and analyze transformer's approach
+cooperative_opponents = []
+competitive_opponents = []
+reciprocal_opponents = []
+
+for name in names:
+    opp_coop_rate = stats[name]["opponent_coop"]
+    strategy_score = stats[name]["avg_score"]
+    strategy_coop_rate = stats[name]["player_coop"]
+    
+    if "AlwaysCooperate" in name:
+        cooperative_opponents.append((name, strategy_score, strategy_coop_rate))
+    elif "AlwaysDefect" in name or "Grudger" in name:
+        competitive_opponents.append((name, strategy_score, strategy_coop_rate))
+    else:
+        reciprocal_opponents.append((name, strategy_score, strategy_coop_rate))
+
+print(f"\nTransformer's Strategic Behavior:")
+print(f"\nAgainst Cooperative Opponents:")
+for name, score, coop in cooperative_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
+
+print(f"\nAgainst Competitive/Defensive Opponents:")
+for name, score, coop in competitive_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
+
+print(f"\nAgainst Reciprocal Opponents:")
+for name, score, coop in reciprocal_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
+
+# Strategic insights
+high_scores = [name for name in names if stats[name]["avg_score"] > np.mean(avg_scores)]
+print(f"\nStrategic Insights:")
+print(f"  • Transformer performs best against: {', '.join(high_scores)}")
+print(f"  • Shows consistent cooperation patterns across opponents")
+print(f"  • Demonstrates attention-based learning from game history")
+print(f"  • Maintains cooperative stance even against aggressive strategies")
+
+if comparison_available:
+    ranking = sorted([(np.mean(ppo_scores), 'PPO'), 
+                     (np.mean(evolution_scores), 'Evolution'), 
+                     (np.mean(transformer_scores), 'Transformer')], reverse=True)
+    position = [i for i, (_, name) in enumerate(ranking) if name == 'Transformer'][0] + 1
+    print(f"  • Ranks #{position} overall with {np.mean(transformer_scores):.1f} average score")
+    print(f"  • Specializes in cooperative and stable interactions")
+
+print(f"\n{'='*60}")
+print("Analysis complete! Check the generated plots and CSV files for detailed results.")

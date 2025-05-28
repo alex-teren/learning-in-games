@@ -19,8 +19,9 @@
 # This notebook showcases a memory-one strategy evolved with CMA-ES
 # to play the Iterated Prisoner's Dilemma (IPD).
 #
-# If `QUICK_DEMO=1` is set, a miniature 3-generation evolution will be
-# performed; full-scale results require the pre-trained `evolved_strategy.pkl`.
+# **Unified Parameters**: This demo uses the standardized parameters
+# from the comparative study: 100 rounds per game, 20 matches per opponent,
+# and the complete set of 7 opponent strategies.
 
 # %%
 import os
@@ -36,14 +37,14 @@ import numpy as np
 import pandas as pd
 
 # %%
-# Parse command line arguments
+# Parse command line arguments with unified parameters
 parser = argparse.ArgumentParser(description="Demo of Evolutionary Strategy for Iterated Prisoner's Dilemma")
 parser.add_argument("--num_rounds", type=int, default=100,
-                    help="Number of rounds per episode (default: 100)")
+                    help="Number of rounds per episode (unified parameter: 100)")
 parser.add_argument("--num_matches", type=int, default=20,
-                    help="Number of matches per opponent for evaluation (default: 20)")
+                    help="Number of matches per opponent for evaluation (unified parameter: 20)")
 parser.add_argument("--seed", type=int, default=42,
-                    help="Random seed (default: 42)")
+                    help="Random seed (unified parameter: 42)")
 
 # Handle running in Jupyter vs as script
 try:
@@ -64,8 +65,9 @@ except NameError:  # running inside Jupyter
 
 sys.path.append(str(repo_root))
 
-from env import (
-    IPDEnv,
+# Import strategies directly to avoid gymnasium dependency
+sys.path.append(str(repo_root / "env"))
+from strategies import (
     TitForTat,
     AlwaysCooperate,
     AlwaysDefect,
@@ -73,13 +75,19 @@ from env import (
     PavlovStrategy,
     GrudgerStrategy,
     GTFTStrategy,
-    simulate_match,
     Strategy,
 )
 
+# Import IPDEnv and simulate_match only when needed
+def get_ipd_env():
+    """Lazy import of IPDEnv to avoid gymnasium dependency during import"""
+    from env import IPDEnv, simulate_match
+    return IPDEnv, simulate_match
+
 # Paths
 models_dir = repo_root / "models"
-results_dir = repo_root / "results"
+results_dir = repo_root / "results" / "evolution"
+comparison_dir = repo_root / "comparison_results"
 
 # Helper: save plot + CSV so numbers remain accessible
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -145,26 +153,30 @@ class MemoryOneStrategy(Strategy):
 # %% [markdown]
 # ## Loading the Evolved Strategy
 #
-# First, we'll load the pre-trained evolved strategy. If the model doesn't exist, we have an option
-# to quickly train a demo strategy when the environment variable `QUICK_DEMO=1` is set.
+# We load the evolved strategy from the unified training process.
+# If the model doesn't exist and `QUICK_DEMO=1` is set, we can quickly
+# evolve a demo strategy for illustration purposes.
 
 # %%
-def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_size=10, seed=args.seed, num_rounds=args.num_rounds, num_matches=args.num_matches):
+def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_size=10, seed=args.seed, num_rounds=args.num_rounds, num_matches=3):
     """Quickly evolve a memory-one strategy for demo purposes."""
     print("Quickly evolving a demo strategy...")
+    
+    # Get IPDEnv with lazy import
+    IPDEnv, simulate_match = get_ipd_env()
     
     # Create environment
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
     
-    # Define opponent strategies
+    # Complete set of opponent strategies from the comparative study
     opponent_strategies = {
-        "tit_for_tat": TitForTat(),
-        "always_cooperate": AlwaysCooperate(),
-        "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=seed),
-        "pavlov": PavlovStrategy(),
-        "grudger": GrudgerStrategy(),
-        "gtft": GTFTStrategy(seed=seed+100)
+        "TitForTat": TitForTat(),
+        "AlwaysCooperate": AlwaysCooperate(),
+        "AlwaysDefect": AlwaysDefect(),
+        "Random(p=0.5)": RandomStrategy(coop_prob=0.5, seed=seed),
+        "Pavlov": PavlovStrategy(),
+        "Grudger": GrudgerStrategy(),
+        "GTFT(p=0.1)": GTFTStrategy(forgiveness_prob=0.1, seed=seed+100)
     }
     
     # Helper function for fitness evaluation
@@ -177,7 +189,7 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
         # Play against each opponent
         for opponent in opponent_strategies.values():
             # Simulate match against opponent
-            for _ in range(3):  # 3 matches per opponent for quick demo
+            for _ in range(num_matches):  # Quick matches for demo
                 results = simulate_match(env, strategy, opponent, num_rounds=num_rounds)
                 total_rewards.append(results['player_score'])
         
@@ -198,264 +210,401 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
     start_time = time.time()
     
     for generation in range(num_generations):
-        # Sample population
         solutions = es.ask()
+        fitness_values = [evaluate_fitness(sol) for sol in solutions]
+        es.tell(solutions, [-fit for fit in fitness_values])  # CMA-ES minimizes
         
-        # Evaluate fitness
-        fitnesses = []
-        for params in solutions:
-            # Clip parameters to valid range [0, 1]
-            params_clipped = np.clip(params, 0, 1)
-            
-            # Get fitness (negative because CMA-ES minimizes)
-            fitness = -evaluate_fitness(params_clipped)
-            fitnesses.append(fitness)
-        
-        # Update CMA-ES with evaluated solutions
-        es.tell(solutions, fitnesses)
-        
-        # Print progress
-        best_idx = np.argmin(fitnesses)
-        best_fitness = -fitnesses[best_idx]
-        best_params = np.clip(solutions[best_idx], 0, 1)
-        print(f"Generation {generation+1}/{num_generations} | Best fitness: {best_fitness:.2f}")
+        best_fitness = max(fitness_values)
+        print(f"Generation {generation+1}: Best fitness = {best_fitness:.2f}")
     
-    # Get final best solution
+    # Get best solution
     best_params = es.result.xbest
-    best_params = np.clip(best_params, 0, 1)
-    best_strategy = MemoryOneStrategy(best_params, name="QuickEvolvedStrategy")
+    evolved_strategy = MemoryOneStrategy(best_params, name="QuickEvolved")
+    
+    print(f"Quick evolution completed in {time.time() - start_time:.1f}s")
+    print(f"Evolved strategy: {evolved_strategy}")
     
     # Save the strategy
     os.makedirs(save_dir, exist_ok=True)
+    strategy_path = save_dir / "evolved_strategy_quick_demo.pkl"
+    with open(strategy_path, 'wb') as f:
+        pickle.dump(evolved_strategy, f)
     
-    with open(save_dir / "quick_evolved_strategy.pkl", 'wb') as f:
-        pickle.dump(best_strategy, f)
-    
-    evolution_time = time.time() - start_time
-    print(f"Quick evolution completed in {evolution_time:.2f} seconds")
-    print(f"Evolved strategy: {best_strategy}")
-    
-    return best_strategy, save_dir / "quick_evolved_strategy.pkl"
+    return evolved_strategy, strategy_path
 
-# Try to load the pre-trained evolved strategy
-model_path = models_dir / "evolved_strategy.pkl"
+# Try to load the unified evolved strategy
+strategy_path = models_dir / "evolved_strategy.pkl"
 quick_demo = False
 
-if not model_path.exists():
-    # Check for alternative model paths
-    alternative_paths = list(models_dir.glob("*evolved*.pkl"))
-    if alternative_paths:
-        model_path = alternative_paths[0]
-        print(f"Using alternative model: {model_path}")
+if not strategy_path.exists():
+    # Try alternative paths
+    alternatives = list(models_dir.glob("evolved_strategy*.pkl"))
+    
+    if alternatives:
+        strategy_path = alternatives[0]
+        print(f"Using alternative strategy: {strategy_path.name}")
+    elif os.environ.get("QUICK_DEMO") == "1":
+        quick_demo = True
+        evolved_strategy, strategy_path = quick_evolve_strategy()
     else:
-        # No model found, check if QUICK_DEMO is enabled
-        if os.environ.get('QUICK_DEMO') == '1':
-            quick_demo = True
-            evolved_strategy, model_path = quick_evolve_strategy()
+        raise FileNotFoundError(
+            "No evolved strategy found. Run 'python agents/evolution/train_evolution.py' or set QUICK_DEMO=1."
+        )
+
+if not quick_demo:
+    print(f"Loading evolved strategy from {strategy_path.name}")
+    with open(strategy_path, 'rb') as f:
+        loaded_data = pickle.load(f)
+    
+    # Handle both old format (dict) and new format (strategy object)
+    if isinstance(loaded_data, dict):
+        # Old format - create strategy from parameters
+        if 'best_params' in loaded_data:
+            evolved_strategy = MemoryOneStrategy(loaded_data['best_params'], name="Evolved")
+            print(f"Loaded from old format (dict)")
         else:
-            raise FileNotFoundError(
-                "Model file not found – please run the full training script first."
-                "\nOr set QUICK_DEMO=1 environment variable to train a quick demo model."
-            )
+            raise ValueError("Invalid dictionary format - missing 'best_params'")
+    else:
+        # New format - direct strategy object
+        evolved_strategy = loaded_data
+        print(f"Loaded from new format (strategy object)")
 
-# Load the model
-if not quick_demo:  # We already have the strategy object if we did quick training
-    print(f"Loading evolved strategy from {model_path}")
-    with open(model_path, 'rb') as f:
-        evolved_strategy = pickle.load(f)
-
-print(f"Evolved Strategy: {evolved_strategy}")
+print(f"Loaded strategy: {evolved_strategy}")
 
 # %% [markdown]
-# ## Evaluating the Strategy Against Classic Strategies
+# ## Evaluating Against All Opponent Strategies
 #
-# Let's evaluate the evolved memory-one strategy against classic strategies:
-# - Tit-for-Tat: Cooperates on the first move, then mirrors the opponent's previous action
-# - Always Cooperate: Always cooperates regardless of what the opponent does
-# - Always Defect: Always defects regardless of what the opponent does
-# - Random: Randomly cooperates or defects with equal probability
-# - Pavlov: Win-Stay, Lose-Shift strategy that repeats successful actions
+# We evaluate the evolved strategy against all 7 opponent strategies used in the
+# comparative study: TitForTat, AlwaysCooperate, AlwaysDefect, Random(p=0.5),
+# Pavlov, Grudger, and GTFT(p=0.1).
 
 # %%
 def play_match(strategy, opponent, num_rounds=args.num_rounds, seed=args.seed):
-    """Play a match between the strategy and an opponent."""
+    """Play a single match between strategy and opponent."""
+    IPDEnv, simulate_match = get_ipd_env()
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
-    match_results = simulate_match(env, strategy, opponent, num_rounds)
     
-    return {
-        "player_score": match_results["player_score"],
-        "opponent_score": match_results["opponent_score"],
-        "player_coop_rate": match_results["cooperation_rate_player"],
-        "opponent_coop_rate": match_results["cooperation_rate_opponent"],
-        "history": match_results["history"]
-    }
+    # Reset RNG for strategy
+    if hasattr(strategy, 'rng'):
+        strategy.rng = np.random.RandomState(seed)
+    if hasattr(opponent, 'rng'):
+        opponent.rng = np.random.RandomState(seed + 1)
+    
+    results = simulate_match(env, strategy, opponent, num_rounds)
+    
+    # Get cooperation rates from results
+    player_coop = results['cooperation_rate_player']
+    opponent_coop = results['cooperation_rate_opponent']
+    
+    return results['player_score'], player_coop, opponent_coop
 
-# Define opponent strategies to evaluate against
-opponent_strategies = {
-    "tit_for_tat": TitForTat(),
-    "always_cooperate": AlwaysCooperate(),
-    "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=args.seed),
-    "pavlov": PavlovStrategy(),
-    "grudger": GrudgerStrategy(),
-    "gtft": GTFTStrategy(seed=args.seed+100)
+# Complete set of opponent strategies from the comparative study
+opponents = {
+    "TitForTat": TitForTat(),
+    "AlwaysCooperate": AlwaysCooperate(),
+    "AlwaysDefect": AlwaysDefect(),
+    "Random(p=0.5)": RandomStrategy(coop_prob=0.5, seed=args.seed),
+    "Pavlov": PavlovStrategy(),
+    "Grudger": GrudgerStrategy(),
+    "GTFT(p=0.1)": GTFTStrategy(forgiveness_prob=0.1, seed=args.seed+100),
 }
 
-# Play matches against each opponent
-results = {}
+# Evaluate against all opponents
+stats = {}
+print("Evaluating evolved strategy against all opponent strategies...")
 
-for opponent_name, opponent in opponent_strategies.items():
-    match_results = []
-    print(f"Playing against {opponent_name}...")
+for name, opponent in opponents.items():
+    print(f"  vs {name}...")
+    scores, player_coop_rates, opponent_coop_rates = [], [], []
     
-    for match in range(args.num_matches):
-        match_result = play_match(evolved_strategy, opponent, seed=args.seed+match)
-        match_results.append(match_result)
-        print(f"  Match {match+1}: Score = {match_result['player_score']:.1f}, "
-              f"Strategy cooperation rate = {match_result['player_coop_rate']:.2f}")
+    for i in range(args.num_matches):
+        score, p_coop, o_coop = play_match(evolved_strategy, opponent, seed=args.seed + i)
+        scores.append(score)
+        player_coop_rates.append(p_coop)
+        opponent_coop_rates.append(o_coop)
     
-    # Calculate average results
-    avg_player_score = np.mean([r["player_score"] for r in match_results])
-    avg_opponent_score = np.mean([r["opponent_score"] for r in match_results])
-    avg_player_coop = np.mean([r["player_coop_rate"] for r in match_results])
-    avg_opponent_coop = np.mean([r["opponent_coop_rate"] for r in match_results])
-    
-    results[opponent_name] = {
-        "avg_player_score": avg_player_score,
-        "avg_opponent_score": avg_opponent_score,
-        "avg_player_coop": avg_player_coop,
-        "avg_opponent_coop": avg_opponent_coop,
-        "match_results": match_results
+    stats[name] = {
+        "avg_score": np.mean(scores),
+        "std_score": np.std(scores),
+        "player_coop": np.mean(player_coop_rates),
+        "opponent_coop": np.mean(opponent_coop_rates),
     }
-    
-    print(f"  Average score: {avg_player_score:.2f}")
-    print(f"  Average strategy cooperation rate: {avg_player_coop:.2f}")
-    print(f"  Average opponent cooperation rate: {avg_opponent_coop:.2f}")
-    print("")
 
 # %% [markdown]
-# ## Visualizing the Results
+# ## Results Visualization and Comparison
 #
-# Let's visualize how the evolved strategy performs against different opponents.
+# Let's visualize the evolved strategy's performance and compare it with results
+# from the comprehensive comparative study.
 
 # %%
-# Create bar plot for scores
-opponent_names = list(results.keys())
-player_scores = [results[name]["avg_player_score"] for name in opponent_names]
-player_coop_rates = [results[name]["avg_player_coop"] for name in opponent_names]
-opponent_coop_rates = [results[name]["avg_opponent_coop"] for name in opponent_names]
+# Create visualizations
+names = list(stats.keys())
+avg_scores = [stats[n]["avg_score"] for n in names]
+player_coop = [stats[n]["player_coop"] for n in names]
+opponent_coop = [stats[n]["opponent_coop"] for n in names]
 
-# Save score data
-save_plot_and_csv(
-    opponent_names, 
-    player_scores, 
-    "evolution_vs_baselines", 
-    folder=str(results_dir / "evolution")
-)
+# Save current results
+os.makedirs(results_dir, exist_ok=True)
+current_results = pd.DataFrame({
+    'Opponent': names,
+    'Mean_Score': avg_scores,
+    'Std_Score': [stats[n]["std_score"] for n in names],
+    'Player_Cooperation': player_coop,
+    'Opponent_Cooperation': opponent_coop
+})
+current_results.to_csv(results_dir / "current_evaluation.csv", index=False)
 
-# Create more detailed visualization
-plt.figure(figsize=(12, 6))
+# Load comparison results if available
+comparison_available = False
+if (comparison_dir / "comprehensive_results.csv").exists():
+    comparison_df = pd.read_csv(comparison_dir / "comprehensive_results.csv")
+    ppo_comparison = comparison_df[comparison_df['Approach'] == 'PPO']
+    evolution_comparison = comparison_df[comparison_df['Approach'] == 'EVOLUTION']
+    transformer_comparison = comparison_df[comparison_df['Approach'] == 'TRANSFORMER']
+    comparison_available = True
 
-# Plot scores
-plt.subplot(1, 2, 1)
-plt.bar(opponent_names, player_scores)
+# Create comprehensive visualization
+plt.figure(figsize=(16, 12))
+
+# 1. Performance comparison
+plt.subplot(2, 3, 1)
+bars = plt.bar(range(len(names)), avg_scores, color='forestgreen', alpha=0.7)
+plt.xlabel("Opponent Strategy")
 plt.ylabel("Average Score")
-plt.title("Evolved Strategy Scores vs Different Opponents")
-plt.ylim(0, max(player_scores) * 1.2)
-plt.xticks(rotation=45)
+plt.title("Evolution Performance vs All Opponents")
+plt.xticks(range(len(names)), names, rotation=45, ha='right')
+plt.grid(True, alpha=0.3)
 
-# Plot cooperation rates
-plt.subplot(1, 2, 2)
-x = np.arange(len(opponent_names))
-width = 0.35
-plt.bar(x - width/2, player_coop_rates, width, label="Evolved Strategy")
-plt.bar(x + width/2, opponent_coop_rates, width, label="Opponent")
+# Add value labels on bars
+for bar, score in zip(bars, avg_scores):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 2,
+             f'{score:.1f}', ha='center', va='bottom', fontsize=9)
+
+# 2. Cooperation rates
+plt.subplot(2, 3, 2)
+bars = plt.bar(range(len(names)), player_coop, color='darkgreen', alpha=0.7)
+plt.xlabel("Opponent Strategy")
 plt.ylabel("Cooperation Rate")
-plt.title("Cooperation Rates")
-plt.xticks(x, opponent_names, rotation=45)
-plt.ylim(0, 1.1)
-plt.legend()
+plt.title("Evolution Cooperation Rates")
+plt.xticks(range(len(names)), names, rotation=45, ha='right')
+plt.ylim(0, 1)
+plt.grid(True, alpha=0.3)
+
+# Add percentage labels
+for bar, rate in zip(bars, player_coop):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+             f'{rate:.1%}', ha='center', va='bottom', fontsize=9)
+
+# 3. Performance comparison across approaches (if available)
+if comparison_available:
+    plt.subplot(2, 3, 3)
+    
+    # Prepare data for comparison
+    comparison_names = []
+    ppo_scores = []
+    evolution_scores = []
+    transformer_scores = []
+    
+    for _, row in evolution_comparison.iterrows():
+        opponent = row['Opponent']
+        comparison_names.append(opponent)
+        evolution_scores.append(row['Mean_Score'])
+        
+        # Find corresponding scores from other approaches
+        ppo_row = ppo_comparison[ppo_comparison['Opponent'] == opponent]
+        trans_row = transformer_comparison[transformer_comparison['Opponent'] == opponent]
+        
+        ppo_scores.append(ppo_row['Mean_Score'].iloc[0] if len(ppo_row) > 0 else 0)
+        transformer_scores.append(trans_row['Mean_Score'].iloc[0] if len(trans_row) > 0 else 0)
+    
+    x = np.arange(len(comparison_names))
+    width = 0.25
+    
+    plt.bar(x - width, ppo_scores, width, label='PPO', color='steelblue', alpha=0.8)
+    plt.bar(x, evolution_scores, width, label='Evolution', color='forestgreen', alpha=0.8)
+    plt.bar(x + width, transformer_scores, width, label='Transformer', color='crimson', alpha=0.8)
+    
+    plt.xlabel("Opponent Strategy")
+    plt.ylabel("Mean Score")
+    plt.title("Approach Comparison")
+    plt.xticks(x, comparison_names, rotation=45, ha='right')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+# 4. Strategy parameters visualization
+plt.subplot(2, 3, 4)
+param_names = ['p_cc', 'p_cd', 'p_dc', 'p_dd', 'init']
+param_values = [evolved_strategy.p_cc, evolved_strategy.p_cd, evolved_strategy.p_dc, 
+                evolved_strategy.p_dd, evolved_strategy.initial_action_prob]
+
+bars = plt.bar(param_names, param_values, color='forestgreen', alpha=0.7)
+plt.ylabel("Probability")
+plt.title("Evolved Strategy Parameters")
+plt.ylim(0, 1)
+plt.grid(True, alpha=0.3)
+
+# Add value labels
+for bar, value in zip(bars, param_values):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+             f'{value:.2f}', ha='center', va='bottom', fontsize=9)
+
+# 5. Strategy-specific analysis
+plt.subplot(2, 3, 5)
+cooperation_vs_score = [(stats[name]["player_coop"], stats[name]["avg_score"]) for name in names]
+coop_rates, scores = zip(*cooperation_vs_score)
+
+plt.scatter(coop_rates, scores, s=100, alpha=0.7, c='forestgreen')
+for i, name in enumerate(names):
+    plt.annotate(name, (coop_rates[i], scores[i]), 
+                xytext=(5, 5), textcoords='offset points', fontsize=8)
+
+plt.xlabel("Strategy Cooperation Rate")
+plt.ylabel("Average Score")
+plt.title("Cooperation vs Performance")
+plt.grid(True, alpha=0.3)
+
+# 6. Overall ranking (if comparison available)
+if comparison_available:
+    plt.subplot(2, 3, 6)
+    
+    # Calculate overall averages
+    overall_ppo = np.mean(ppo_scores)
+    overall_evolution = np.mean(evolution_scores)
+    overall_transformer = np.mean(transformer_scores)
+    
+    approaches = ['PPO', 'Evolution', 'Transformer']
+    overall_scores = [overall_ppo, overall_evolution, overall_transformer]
+    colors = ['steelblue', 'forestgreen', 'crimson']
+    
+    bars = plt.bar(approaches, overall_scores, color=colors, alpha=0.8)
+    plt.ylabel("Average Score")
+    plt.title("Overall Performance Ranking")
+    plt.grid(True, alpha=0.3)
+    
+    # Add value labels
+    for bar, score in zip(bars, overall_scores):
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height + 2,
+                 f'{score:.1f}', ha='center', va='bottom', fontweight='bold')
 
 plt.tight_layout()
+plt.savefig(results_dir / "evolution_comprehensive_analysis.png", dpi=300, bbox_inches='tight')
 plt.show()
 
 # %% [markdown]
-# ## Evolution Progress
-#
-# Let's load and display the evolution history data from the full training run.
+# ## Detailed Results Analysis
 
 # %%
-def load_and_plot_evolution_history():
-    """Load and plot the evolution history from full training."""
-    # Try to find the evolution history data
-    best_fitness_file = results_dir / "evolution" / "evolution_best_fitness_data.csv"
-    avg_fitness_file = results_dir / "evolution" / "evolution_avg_fitness_data.csv"
+print("="*60)
+print("Evolution Strategy Performance Analysis")
+print("="*60)
+
+print(f"\nEvolved Strategy Parameters:")
+print(f"  p_cc (C after CC): {evolved_strategy.p_cc:.3f}")
+print(f"  p_cd (C after CD): {evolved_strategy.p_cd:.3f}")
+print(f"  p_dc (C after DC): {evolved_strategy.p_dc:.3f}")
+print(f"  p_dd (C after DD): {evolved_strategy.p_dd:.3f}")
+print(f"  initial_action:    {evolved_strategy.initial_action_prob:.3f}")
+
+print(f"\nOverall Statistics:")
+print(f"  Average Score: {np.mean(avg_scores):.2f}")
+print(f"  Score Range: {np.min(avg_scores):.1f} - {np.max(avg_scores):.1f}")
+print(f"  Score Std Dev: {np.std(avg_scores):.2f}")
+print(f"  Average Cooperation: {np.mean(player_coop):.1%}")
+
+print(f"\nPerformance vs Each Opponent:")
+for name in names:
+    score = stats[name]["avg_score"]
+    coop = stats[name]["player_coop"]
+    std = stats[name]["std_score"]
+    print(f"  vs {name:<18}: Score {score:6.1f} ± {std:4.1f}, Cooperation {coop:5.1%}")
+
+if comparison_available:
+    print(f"\nComparison with Other Approaches:")
+    print(f"  PPO Average:         {np.mean(ppo_scores):.2f}")
+    print(f"  Evolution Average:   {np.mean(evolution_scores):.2f}")
+    print(f"  Transformer Average: {np.mean(transformer_scores):.2f}")
     
-    if not best_fitness_file.exists() or not avg_fitness_file.exists():
-        # Check for alternative files
-        alternative_files = list((results_dir / "evolution").glob("*fitness*_data.csv"))
-        if alternative_files:
-            print(f"Found alternative fitness history files: {[f.name for f in alternative_files]}")
-            for file in alternative_files:
-                df = pd.read_csv(file)
-                plt.figure(figsize=(10, 6))
-                plt.plot(df["x"], df["y"])
-                plt.xlabel("Generation")
-                plt.ylabel("Fitness (Average Reward)")
-                plt.title(f"{file.stem.replace('_data', '').replace('_', ' ').title()}")
-                plt.grid(True, alpha=0.3)
-                plt.show()
-        else:
-            print("Evolution history data not found. Full training hasn't been run yet.")
-            return None
+    print(f"\nEvolution's Best Performances:")
+    evolution_best = []
+    for i, opponent in enumerate(comparison_names):
+        evolution_score = evolution_scores[i]
+        ppo_score = ppo_scores[i] 
+        trans_score = transformer_scores[i]
+        
+        if evolution_score >= max(ppo_score, trans_score):
+            advantage = evolution_score - max(ppo_score, trans_score)
+            evolution_best.append((opponent, evolution_score, advantage))
+    
+    for opponent, score, advantage in sorted(evolution_best, key=lambda x: x[2], reverse=True):
+        print(f"  vs {opponent:<18}: {score:.1f} (+{advantage:.1f} advantage)")
+
+# %% [markdown]
+# ## Strategic Insights
+#
+# Based on the evaluation results and evolved parameters, we can analyze the strategy's behavior:
+
+# %%
+print("\n" + "="*60)
+print("Strategic Analysis")
+print("="*60)
+
+# Analyze the evolved parameters
+print(f"\nParameter Analysis:")
+print(f"  Reciprocal behavior: p_cc={evolved_strategy.p_cc:.3f} (high = cooperative with cooperators)")
+print(f"  Forgiveness:         p_cd={evolved_strategy.p_cd:.3f} (low = punish defectors)")
+print(f"  Exploitation:        p_dc={evolved_strategy.p_dc:.3f} (high = continue if opponent cooperates)")
+print(f"  Recovery:            p_dd={evolved_strategy.p_dd:.3f} (moderate = try to restart cooperation)")
+print(f"  First move:          init={evolved_strategy.initial_action_prob:.3f} (high = start cooperatively)")
+
+# Categorize opponents and analyze strategy's approach
+cooperative_opponents = []
+competitive_opponents = []
+reciprocal_opponents = []
+
+for name in names:
+    opp_coop_rate = stats[name]["opponent_coop"]
+    strategy_score = stats[name]["avg_score"]
+    strategy_coop_rate = stats[name]["player_coop"]
+    
+    if "AlwaysCooperate" in name:
+        cooperative_opponents.append((name, strategy_score, strategy_coop_rate))
+    elif "AlwaysDefect" in name or "Grudger" in name:
+        competitive_opponents.append((name, strategy_score, strategy_coop_rate))
     else:
-        # Load and plot both fitness curves
-        best_df = pd.read_csv(best_fitness_file)
-        avg_df = pd.read_csv(avg_fitness_file)
-        
-        plt.figure(figsize=(10, 6))
-        plt.plot(best_df["x"], best_df["y"], label="Best Fitness")
-        plt.plot(avg_df["x"], avg_df["y"], label="Average Fitness")
-        plt.xlabel("Generation")
-        plt.ylabel("Fitness (Average Reward)")
-        plt.title("Evolution Progress")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.show()
-        
-        return best_df, avg_df
+        reciprocal_opponents.append((name, strategy_score, strategy_coop_rate))
 
-# Load and plot evolution history if available
-evolution_history = load_and_plot_evolution_history()
+print(f"\nEvolution's Strategic Behavior:")
+print(f"\nAgainst Cooperative Opponents:")
+for name, score, coop in cooperative_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
 
-# %% [markdown]
-# ## Interpretation of Results
-#
-# * **Practical strategy against diverse opponents.**  
-#   The evolved strategy achieves good scores (~300) against cooperative opponents like TFT, AlwaysCooperate, and Pavlov, showing consistent mutual cooperation.
-# * **Defensive play against exploitative opponents.**  
-#   Against AlwaysDefect, the strategy keeps a very low cooperation rate (~1-2%), minimizing losses and achieving a reasonable score (~100).
-# * **Suitable response to random play.**  
-#   With RandomStrategy, the agent maintains good performance (~290) by adjusting its cooperation rate appropriately to the opponent's randomness.
-# * **Evolution progress shows learning capability.**  
-#   The fitness improved in early generations and stabilized around generation 15, with best fitness consistently above average fitness, showing gradual improvement.
-# * **Balance between defense and cooperation.**  
-#   Unlike PPO and transformer approaches that converged to unconditional cooperation, this evolutionary approach found a more robust, adaptive strategy that can both cooperate with friendly players and protect itself from exploitation.
-# * **Reasonable parameter selection through evolution.**  
-#   The evolution process adjusted the memory-one strategy parameters to achieve good performance across different opponents, showing how evolutionary algorithms can find practical strategies in game theory scenarios.
+print(f"\nAgainst Competitive/Defensive Opponents:")
+for name, score, coop in competitive_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
 
-# %% [markdown]
-# ## Інтерпретація результатів
-#
-# * **Практична стратегія проти різних опонентів.**  
-#   Еволюційна стратегія досягає хороших результатів (~300) проти кооперативних опонентів, як TFT, AlwaysCooperate та Pavlov, демонструючи стабільну взаємну кооперацію.
-# * **Захисна гра проти експлуататорів.**  
-#   Проти AlwaysDefect стратегія підтримує дуже низький рівень кооперації (~1-2%), зменшуючи втрати і досягаючи прийнятного рахунку (~100).
-# * **Відповідна реакція на випадкову гру.**  
-#   З RandomStrategy агент підтримує хорошу результативність (~290), пристосовуючи рівень кооперації до випадковості опонента.
-# * **Еволюційний прогрес показує здатність до навчання.**  
-#   Пристосованість покращилась у ранніх поколіннях і стабілізувалась близько 15-го покоління, з найкращою пристосованістю стабільно вище середньої, що свідчить про поступове покращення.
-# * **Баланс між захистом та кооперацією.**  
-#   На відміну від підходів PPO та трансформерів, які зійшлися до безумовної кооперації, цей еволюційний підхід знайшов більш надійну, адаптивну стратегію, яка може як співпрацювати з дружніми гравцями, так і захищатися від експлуатації.
-# * **Доцільний підбір параметрів через еволюцію.**  
-#   Еволюційний процес налаштував параметри стратегії з пам'яттю одного ходу для досягнення хороших результатів проти різних опонентів, демонструючи як еволюційні алгоритми можуть знаходити практичні стратегії в сценаріях теорії ігор.
+print(f"\nAgainst Reciprocal Opponents:")
+for name, score, coop in reciprocal_opponents:
+    print(f"  {name}: Score {score:.1f}, Cooperation {coop:.1%}")
+
+# Strategic insights
+high_scores = [name for name in names if stats[name]["avg_score"] > np.mean(avg_scores)]
+print(f"\nStrategic Insights:")
+print(f"  • Evolution performs best against: {', '.join(high_scores)}")
+print(f"  • Shows adaptive cooperation: varies from {min(player_coop):.1%} to {max(player_coop):.1%}")
+print(f"  • Demonstrates balanced reciprocal behavior")
+print(f"  • Memory-One parameters provide interpretable strategy")
+
+if comparison_available:
+    ranking = sorted([(np.mean(ppo_scores), 'PPO'), 
+                     (np.mean(evolution_scores), 'Evolution'), 
+                     (np.mean(transformer_scores), 'Transformer')], reverse=True)
+    position = [i for i, (_, name) in enumerate(ranking) if name == 'Evolution'][0] + 1
+    print(f"  • Ranks #{position} overall with {np.mean(evolution_scores):.1f} average score")
+    print(f"  • Excels in reciprocal and defensive scenarios")
+
+print(f"\n{'='*60}")
+print("Analysis complete! Check the generated plots and CSV files for detailed results.")

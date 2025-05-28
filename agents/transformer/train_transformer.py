@@ -33,7 +33,7 @@ def save_plot_and_csv(x, y, name: str, folder: str = "results"):
 
 def generate_trajectory_dataset(
     num_games: int = 1000,
-    num_rounds: int = 10,
+    num_rounds: int = 100,
     strategy_pairs: Optional[List[Tuple[Strategy, Strategy]]] = None,
     include_random_games: bool = True,
     seed: int = 42,
@@ -1014,8 +1014,8 @@ if __name__ == "__main__":
                         help="Batch size for training (default: 64)")
     parser.add_argument("--num_games", type=int, default=2000,
                         help="Number of games for dataset generation (default: 2000)")
-    parser.add_argument("--num_rounds", type=int, default=10,
-                        help="Number of rounds per game (default: 10)")
+    parser.add_argument("--num_rounds", type=int, default=100,
+                        help="Number of rounds per game (default: 100)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     

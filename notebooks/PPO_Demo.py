@@ -365,11 +365,14 @@ plt.title("PPO Performance vs All Opponents")
 plt.xticks(range(len(names)), names, rotation=45, ha='right')
 plt.grid(True, alpha=0.3)
 
-# Add value labels on bars
+# Add value labels on bars with better positioning
 for bar, score in zip(bars, avg_rewards):
     height = bar.get_height()
-    plt.text(bar.get_x() + bar.get_width()/2., height + 2,
-             f'{score:.1f}', ha='center', va='bottom', fontsize=9)
+    plt.text(bar.get_x() + bar.get_width()/2., height + max(avg_rewards) * 0.01,
+             f'{score:.1f}', ha='center', va='bottom', fontsize=8)
+
+# Add some padding at the top
+plt.ylim(0, max(avg_rewards) * 1.15)
 
 # 2. Cooperation rates
 plt.subplot(2, 3, 2)
@@ -378,14 +381,14 @@ plt.xlabel("Opponent Strategy")
 plt.ylabel("Cooperation Rate")
 plt.title("PPO Cooperation Rates")
 plt.xticks(range(len(names)), names, rotation=45, ha='right')
-plt.ylim(0, 1)
+plt.ylim(0, 1.1)  # Extra space at top
 plt.grid(True, alpha=0.3)
 
-# Add percentage labels
+# Add percentage labels with better positioning
 for bar, rate in zip(bars, agent_coop):
     height = bar.get_height()
-    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-             f'{rate:.1%}', ha='center', va='bottom', fontsize=9)
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.03,
+             f'{rate:.1%}', ha='center', va='bottom', fontsize=8)
 
 # 3. Performance comparison across approaches (if available)
 if comparison_available:
@@ -451,14 +454,34 @@ cooperation_vs_score = [(stats[name]["agent_coop"], stats[name]["avg_reward"]) f
 coop_rates, scores = zip(*cooperation_vs_score)
 
 plt.scatter(coop_rates, scores, s=100, alpha=0.7, c='steelblue')
+
+# Improved annotation positioning to avoid overlap
 for i, name in enumerate(names):
-    plt.annotate(name, (coop_rates[i], scores[i]), 
-                xytext=(5, 5), textcoords='offset points', fontsize=8)
+    # Smart positioning to avoid overlap
+    x, y = coop_rates[i], scores[i]
+    
+    # Determine offset direction based on position
+    if i < len(names) // 2:
+        xytext = (8, 8)  # Upper right
+    else:
+        xytext = (-8, -8)  # Lower left
+    
+    # Special handling for extreme values
+    if y > max(scores) * 0.8:  # High scores
+        xytext = (5, -10)
+    elif y < max(scores) * 0.3:  # Low scores
+        xytext = (5, 10)
+    
+    plt.annotate(name, (x, y), 
+                xytext=xytext, textcoords='offset points', 
+                fontsize=7, ha='center',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7, edgecolor='none'))
 
 plt.xlabel("Agent Cooperation Rate")
 plt.ylabel("Average Score")
 plt.title("Cooperation vs Performance")
 plt.grid(True, alpha=0.3)
+plt.margins(0.1)  # Add margins to prevent clipping
 
 # 6. Overall ranking (if comparison available)
 if comparison_available:

@@ -1,0 +1,8 @@
+,mean_reward,std_reward,cooperation_rate,adaptation_score
+Tit-for-Tat,250.0,0.0,0.5,0.0
+Always Cooperate,496.0,0.0,0.02,0.0
+Always Defect,99.0,0.0,0.01,0.0
+Random(p=0.5),249.11204528808594,10.63795280456543,0.479,0.04782608695652174
+Pavlov,250.0,0.0,0.5,0.0
+Grudger,152.0,0.0,0.01,0.0
+GTFT(p=0.1),315.3580017089844,11.04028606414795,0.826,0.0

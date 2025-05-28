@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import pickle
+import argparse
 from pathlib import Path
 
 import cma
@@ -34,9 +35,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# -----------------------------------------------------------
+# %%
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Demo of Evolutionary Strategy for Iterated Prisoner's Dilemma")
+parser.add_argument("--num_rounds", type=int, default=100,
+                    help="Number of rounds per episode (default: 100)")
+parser.add_argument("--num_matches", type=int, default=20,
+                    help="Number of matches per opponent for evaluation (default: 20)")
+parser.add_argument("--seed", type=int, default=42,
+                    help="Random seed (default: 42)")
+
+# Handle running in Jupyter vs as script
+try:
+    # When running as a script
+    args = parser.parse_args()
+except SystemExit:
+    # When running in Jupyter (no command line args)
+    args = parser.parse_args([])
+
+# %%
 # Detect repository root (works in both .py script and .ipynb)
-# -----------------------------------------------------------
 try:  # running as .py
     repo_root = Path(__file__).resolve().parents[1]
 except NameError:  # running inside Jupyter
@@ -61,9 +79,7 @@ from env import (
 models_dir = repo_root / "models"
 results_dir = repo_root / "results"
 
-# -----------------------------------------------------------
 # Helper: save plot + CSV so numbers remain accessible
-# -----------------------------------------------------------
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     """Save PNG and matching CSV for later analysis."""
     import pandas as pd
@@ -131,12 +147,12 @@ class MemoryOneStrategy(Strategy):
 # to quickly train a demo strategy when the environment variable `QUICK_DEMO=1` is set.
 
 # %%
-def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_size=10, seed=42):
+def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_size=10, seed=args.seed, num_rounds=args.num_rounds, num_matches=args.num_matches):
     """Quickly evolve a memory-one strategy for demo purposes."""
     print("Quickly evolving a demo strategy...")
     
     # Create environment
-    env = IPDEnv(num_rounds=100, seed=seed)
+    env = IPDEnv(num_rounds=num_rounds, seed=seed)
     
     # Define opponent strategies
     opponent_strategies = {
@@ -157,8 +173,8 @@ def quick_evolve_strategy(save_dir=models_dir, num_generations=3, population_siz
         # Play against each opponent
         for opponent in opponent_strategies.values():
             # Simulate match against opponent
-            for _ in range(3):  # 3 matches per opponent
-                results = simulate_match(env, strategy, opponent, num_rounds=100)
+            for _ in range(3):  # 3 matches per opponent for quick demo
+                results = simulate_match(env, strategy, opponent, num_rounds=num_rounds)
                 total_rewards.append(results['player_score'])
         
         # Return average reward (higher is better)
@@ -257,7 +273,7 @@ print(f"Evolved Strategy: {evolved_strategy}")
 # - Pavlov: Win-Stay, Lose-Shift strategy that repeats successful actions
 
 # %%
-def play_match(strategy, opponent, num_rounds=100, seed=42):
+def play_match(strategy, opponent, num_rounds=args.num_rounds, seed=args.seed):
     """Play a match between the strategy and an opponent."""
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
     match_results = simulate_match(env, strategy, opponent, num_rounds)
@@ -275,21 +291,19 @@ opponent_strategies = {
     "tit_for_tat": TitForTat(),
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=42),
+    "random": RandomStrategy(seed=args.seed),
     "pavlov": PavlovStrategy()
 }
 
-# Play 5 matches against each opponent
-num_matches = 5
-num_rounds = 100
+# Play matches against each opponent
 results = {}
 
 for opponent_name, opponent in opponent_strategies.items():
     match_results = []
     print(f"Playing against {opponent_name}...")
     
-    for match in range(num_matches):
-        match_result = play_match(evolved_strategy, opponent, num_rounds=num_rounds, seed=42+match)
+    for match in range(args.num_matches):
+        match_result = play_match(evolved_strategy, opponent, seed=args.seed+match)
         match_results.append(match_result)
         print(f"  Match {match+1}: Score = {match_result['player_score']:.1f}, "
               f"Strategy cooperation rate = {match_result['player_coop_rate']:.2f}")

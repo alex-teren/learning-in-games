@@ -1,19 +1,20 @@
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from stable_baselines3 import PPO
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
-from stable_baselines3.common.evaluation import evaluate_policy
-import pandas as pd
 import time
-import gym
-import sys
-from pathlib import Path
+from typing import List, Dict, Optional
 import argparse
-from datetime import timedelta
+from pathlib import Path
 
-# Add project root to path to allow imports from other directories
+# Import RL libraries
+from stable_baselines3 import PPO
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
+from stable_baselines3.common.evaluation import evaluate_policy
+
+# Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy
@@ -21,373 +22,415 @@ from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     """Save PNG plot and matching CSV"""
-    import os, pandas as pd, matplotlib.pyplot as plt
+    import pandas as pd
     os.makedirs(folder, exist_ok=True)
     pd.DataFrame({"x": x, "y": y}).to_csv(f"{folder}/{name}_data.csv", index=False)
-    plt.figure(); plt.plot(x, y); plt.title(name.replace("_", " ").title())
-    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight"); plt.close()
+    plt.figure(figsize=(10, 6))
+    plt.plot(x, y, linewidth=2)
+    plt.title(name.replace("_", " ").title())
+    plt.xlabel("Timestep")
+    plt.ylabel("Value")
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f"{folder}/{name}.png", dpi=120, bbox_inches="tight")
+    plt.close()
 
 
-def create_env(opponent_strategy="tit_for_tat", num_rounds=100, memory_size=3, seed=None, monitor_dir=None):
-    """
-    Create IPD environment with specified opponent
+def create_env(opponent_strategy=None, num_rounds: int = 100, seed: int = 42):
+    """Create IPD environment with specified opponent"""
+    if opponent_strategy is None:
+        opponent_strategy = TitForTat()
     
-    Args:
-        opponent_strategy: Opponent strategy to use
-        num_rounds: Number of rounds per episode
-        memory_size: History memory size
-        seed: Random seed
-        monitor_dir: Directory to save monitor files
+    def _make_env():
+        return IPDEnv(opponent_strategy=opponent_strategy, num_rounds=num_rounds, seed=seed)
+    
+    return _make_env
+
+
+class ProgressCallback(BaseCallback):
+    """Custom callback to track training progress"""
+    
+    def __init__(self, verbose=0):
+        super(ProgressCallback, self).__init__(verbose)
+        self.rewards = []
+        self.episode_count = 0
         
-    Returns:
-        Configured environment
-    """
-    env = IPDEnv(
-        num_rounds=num_rounds,
-        memory_size=memory_size,
-        opponent_strategy=opponent_strategy,
-        seed=seed
-    )
-    
-    # Wrap with Monitor to record episode statistics
-    if monitor_dir is not None:
-        os.makedirs(monitor_dir, exist_ok=True)
-        env = Monitor(env, filename=os.path.join(monitor_dir, "monitor.csv"))
-    else:
-        env = Monitor(env)
-    
-    return env
+    def _on_step(self) -> bool:
+        # Collect episode rewards
+        if len(self.locals.get('rewards', [])) > 0:
+            self.rewards.extend(self.locals['rewards'])
+        
+        return True
 
 
 def train_ppo_agent(
-    opponent_strategy="tit_for_tat",
-    total_timesteps=200000,
-    n_steps=2048,
-    batch_size=64,
-    learning_rate=3e-4,
-    gamma=0.99,
-    ent_coef=0.01,
-    clip_range=0.2,
-    n_epochs=10,
-    num_rounds=100,
-    memory_size=3,
-    seed=42,
-    save_dir=None,
-    log_dir=None,
-    eval_freq=10000,
-    n_eval_episodes=20
-):
+    opponent_strategies: List = None,
+    total_timesteps: int = 200000,
+    learning_rate: float = 3e-4,
+    n_steps: int = 2048,
+    batch_size: int = 64,
+    n_epochs: int = 10,
+    clip_range: float = 0.2,
+    ent_coef: float = 0.01,
+    num_rounds: int = 100,
+    seed: int = 42,
+    save_dir: Optional[str] = None,
+    log_dir: Optional[str] = None,
+    model_name: str = "ppo_ipd"
+) -> PPO:
     """
-    Train a PPO agent against a specific opponent
+    Train PPO agent against multiple opponents or single opponent
     
     Args:
-        opponent_strategy: Opponent strategy to train against
+        opponent_strategies: List of strategies to train against, or single strategy
         total_timesteps: Total training timesteps
+        learning_rate: Learning rate for PPO
         n_steps: Number of steps to run for each environment per update
         batch_size: Minibatch size
-        learning_rate: Learning rate
-        gamma: Discount factor
-        ent_coef: Entropy coefficient
+        n_epochs: Number of epochs when optimizing the surrogate loss
         clip_range: Clipping parameter for PPO
-        n_epochs: Number of epoch when optimizing the surrogate loss
-        num_rounds: Number of rounds per episode
-        memory_size: History memory size
+        ent_coef: Entropy coefficient for exploration
+        num_rounds: Number of rounds per IPD game
         seed: Random seed
         save_dir: Directory to save models
-        log_dir: Directory to save logs
-        eval_freq: Evaluate the agent every eval_freq timesteps
-        n_eval_episodes: Number of episodes to evaluate
-        
-    Returns:
-        Trained PPO model, results dataframe
-    """
-    print(f"Training PPO agent against {opponent_strategy} opponent...")
+        log_dir: Directory to save logs and results
+        model_name: Name for saved model
     
-    # Get repo root and set default paths if not provided
+    Returns:
+        Trained PPO model
+    """
+    
+    print("🤖 Training PPO Agent for Iterated Prisoner's Dilemma")
+    
+    # Set up directories
     repo_root = Path(__file__).resolve().parents[2]
     if save_dir is None:
         save_dir = repo_root / "models"
     if log_dir is None:
-        log_dir = repo_root / "results"
+        log_dir = repo_root / "results" / "ppo"
     
-    # Create directories if they don't exist
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(f"{log_dir}/ppo", exist_ok=True)
     
-    # Set random seeds
-    np.random.seed(seed)
+    # Set up opponent strategies
+    if opponent_strategies is None:
+        opponent_strategies = [TitForTat()]
+    elif not isinstance(opponent_strategies, list):
+        opponent_strategies = [opponent_strategies]
     
-    # Create train and eval environments with different seeds
-    train_env = create_env(
-        opponent_strategy=opponent_strategy,
-        num_rounds=num_rounds,
-        memory_size=memory_size,
-        seed=seed,
-        monitor_dir=f"{log_dir}/ppo"
+    print(f"📊 Training against {len(opponent_strategies)} opponent(s):")
+    for strategy in opponent_strategies:
+        print(f"   - {strategy.name}")
+    
+    # Multi-opponent training setup
+    if len(opponent_strategies) > 1:
+        print("🔄 Multi-opponent training mode")
+        training_results = {}
+        
+        # Train against each opponent for portion of timesteps
+        timesteps_per_opponent = total_timesteps // len(opponent_strategies)
+        final_model = None
+        
+        for i, opponent in enumerate(opponent_strategies):
+            print(f"\n🎯 Training phase {i+1}/{len(opponent_strategies)}: vs {opponent.name}")
+            
+            # Create environment
+            env = make_vec_env(
+                create_env(opponent, num_rounds, seed), 
+                n_envs=1,
+                seed=seed
+            )
+            env = VecMonitor(env)
+            
+            # Create or continue model
+            if final_model is None:
+                model = PPO(
+                    "MlpPolicy",
+                    env,
+                    learning_rate=learning_rate,
+                    n_steps=n_steps,
+                    batch_size=batch_size,
+                    n_epochs=n_epochs,
+                    clip_range=clip_range,
+                    ent_coef=ent_coef,
+                    verbose=1,
+                    seed=seed,
+                    tensorboard_log=f"{log_dir}/tensorboard"
+                )
+            else:
+                # Continue training with new environment
+                model.set_env(env)
+            
+            # Training callback
+            callback = ProgressCallback()
+            
+            # Train for this phase
+            start_time = time.time()
+            model.learn(
+                total_timesteps=timesteps_per_opponent,
+                callback=callback,
+                progress_bar=True
+            )
+            training_time = time.time() - start_time
+            
+            # Evaluate against this opponent
+            mean_reward, std_reward = evaluate_policy(
+                model, env, n_eval_episodes=20, deterministic=True
+            )
+            
+            training_results[opponent.name] = {
+                'mean_reward': mean_reward,
+                'std_reward': std_reward,
+                'training_time': training_time
+            }
+            
+            print(f"   📈 Mean reward vs {opponent.name}: {mean_reward:.3f} ± {std_reward:.3f}")
+            
+            final_model = model
+            env.close()
+        
+        model = final_model
+        
+    else:
+        # Single opponent training
+        opponent = opponent_strategies[0]
+        print(f"🎯 Single opponent training: vs {opponent.name}")
+        
+        # Create environment
+        env = make_vec_env(
+            create_env(opponent, num_rounds, seed), 
+            n_envs=1,
+            seed=seed
+        )
+        env = VecMonitor(env)
+        
+        # Create model
+        model = PPO(
+            "MlpPolicy",
+            env,
+            learning_rate=learning_rate,
+            n_steps=n_steps,
+            batch_size=batch_size,
+            n_epochs=n_epochs,
+            clip_range=clip_range,
+            ent_coef=ent_coef,
+            verbose=1,
+            seed=seed,
+            tensorboard_log=f"{log_dir}/tensorboard"
+        )
+        
+        # Training callback
+        callback = ProgressCallback()
+        
+        # Train model
+        start_time = time.time()
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            progress_bar=True
+        )
+        training_time = time.time() - start_time
+        
+        # Single opponent results
+        mean_reward, std_reward = evaluate_policy(
+            model, env, n_eval_episodes=20, deterministic=True
+        )
+        
+        training_results = {
+            opponent.name: {
+                'mean_reward': mean_reward,
+                'std_reward': std_reward,
+                'training_time': training_time
+            }
+        }
+        
+        env.close()
+    
+    # Save model
+    model_path = f"{save_dir}/{model_name}"
+    model.save(model_path)
+    print(f"💾 Model saved: {model_path}")
+    
+    # Comprehensive evaluation against all standard strategies
+    print("\n📊 Comprehensive Evaluation:")
+    all_strategies = [
+        TitForTat(), AlwaysCooperate(), AlwaysDefect(), 
+        RandomStrategy(seed=seed), PavlovStrategy(),
+        GrudgerStrategy(), GTFTStrategy(seed=seed)
+    ]
+    
+    evaluation_results = evaluate_against_all_opponents(
+        model, all_strategies, num_rounds, seed, log_dir
     )
     
-    eval_env = create_env(
-        opponent_strategy=opponent_strategy,
-        num_rounds=num_rounds,
-        memory_size=memory_size,
-        seed=seed+100
-    )
-    
-    # Create evaluation callback
-    eval_callback = EvalCallback(
-        eval_env,
-        best_model_save_path=f"{save_dir}/ppo_best_{opponent_strategy}",
-        log_path=f"{log_dir}/ppo",
-        eval_freq=eval_freq,
-        deterministic=True,
-        render=False,
-        n_eval_episodes=n_eval_episodes
-    )
-    
-    # Create checkpoint callback
-    checkpoint_callback = CheckpointCallback(
-        save_freq=50000,
-        save_path=f"{save_dir}/ppo_checkpoints_{opponent_strategy}",
-        name_prefix="ppo_ipd",
-        save_replay_buffer=False,
-        save_vecnormalize=False,
-    )
-    
-    # Initialize PPO agent
-    model = PPO(
-        "MlpPolicy",
-        train_env,
-        learning_rate=learning_rate,
-        n_steps=n_steps,
-        batch_size=batch_size,
-        gamma=gamma,
-        ent_coef=ent_coef,
-        clip_range=clip_range,
-        n_epochs=n_epochs,
-        verbose=1,
-        tensorboard_log=f"{log_dir}/ppo_tensorboard",
-        seed=seed
-    )
-    
-    # Calculate ETA
-    # PPO typically processes about 1000-2000 timesteps per second on a CPU
-    estimated_time_seconds = total_timesteps / 1500  # Rough estimate, adjust based on hardware
-    eta = timedelta(seconds=estimated_time_seconds)
-    print(f"Estimated training time: {eta}")
-    print(f"Training will process {total_timesteps} timesteps...")
-    
-    # Train the agent
-    start_time = time.time()
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=[eval_callback, checkpoint_callback]
-    )
-    total_training_time = time.time() - start_time
-    
-    # Save the final model
-    model.save(f"{save_dir}/ppo_final_{opponent_strategy}")
-    
-    print(f"Training completed in {total_training_time:.2f} seconds")
-    
-    # Evaluate the trained agent against different opponents
-    evaluate_against_all_opponents(model, num_rounds, memory_size, seed, log_dir)
-    
-    # Plot and save the learning curve
-    plot_results(log_dir, opponent_strategy)
+    # Plot training results if we have progress data
+    if hasattr(callback, 'rewards') and len(callback.rewards) > 0:
+        save_plot_and_csv(
+            list(range(len(callback.rewards))), 
+            callback.rewards, 
+            "ppo_training_rewards", 
+            folder=str(log_dir)
+        )
     
     return model
 
 
-def evaluate_against_all_opponents(model, num_rounds=100, memory_size=3, seed=42, log_dir=None):
-    """
-    Evaluate a trained model against different opponent strategies
+def evaluate_against_all_opponents(
+    model: PPO, 
+    strategies: List, 
+    num_rounds: int = 100,
+    seed: int = 42,
+    log_dir: Optional[str] = None,
+    n_episodes: int = 50
+) -> Dict:
+    """Evaluate trained model against all opponent strategies"""
     
-    Args:
-        model: Trained PPO model
-        num_rounds: Number of rounds per episode
-        memory_size: History memory size
-        seed: Random seed
-        log_dir: Directory to save evaluation results
+    print("🎯 Evaluating against all opponents:")
+    results = {}
     
-    Returns:
-        DataFrame with evaluation results
-    """
-    print("Evaluating against different opponents...")
-    
-    # Get repo root and set default path if not provided
-    if log_dir is None:
-        repo_root = Path(__file__).resolve().parents[2]
-        log_dir = repo_root / "results"
-    
-    # Define opponent strategies to evaluate against
-    opponent_strategies = {
-        "tit_for_tat": TitForTat(),
-        "always_cooperate": AlwaysCooperate(),
-        "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=seed+200),
-        "pavlov": PavlovStrategy(),
-        "grudger": GrudgerStrategy(),
-        "gtft": GTFTStrategy(seed=seed+201)
-    }
-    
-    # Create results dataframe
-    results = []
-    
-    # Evaluate against each opponent
-    for opponent_name, opponent in opponent_strategies.items():
-        # Create environment with current opponent
-        env = create_env(opponent_strategy=opponent_name, num_rounds=num_rounds, memory_size=memory_size, seed=seed+300)
+    for strategy in strategies:
+        print(f"   Testing vs {strategy.name}...")
         
-        # Evaluate agent performance
-        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=20, deterministic=True)
+        # Create environment for this opponent
+        env = make_vec_env(
+            create_env(strategy, num_rounds, seed), 
+            n_envs=1,
+            seed=seed
+        )
+        env = VecMonitor(env)
         
-        # Get cooperation rates
-        cooperation_rates = get_cooperation_rates(model, env, n_episodes=20)
+        # Evaluate
+        mean_reward, std_reward = evaluate_policy(
+            model, env, n_eval_episodes=n_episodes, deterministic=True
+        )
         
-        # Store results
-        results.append({
-            "opponent": opponent_name,
-            "mean_reward": mean_reward,
-            "std_reward": std_reward,
-            "agent_cooperation_rate": cooperation_rates["agent"],
-            "opponent_cooperation_rate": cooperation_rates["opponent"]
-        })
+        # Get cooperation rate
+        coop_rate = get_cooperation_rate(model, env, n_episodes=10)
+        
+        results[strategy.name] = {
+            'mean_reward': mean_reward,
+            'std_reward': std_reward,
+            'cooperation_rate': coop_rate
+        }
+        
+        print(f"     📈 Reward: {mean_reward:.3f} ± {std_reward:.3f}")
+        print(f"     🤝 Cooperation: {coop_rate:.1%}")
+        
+        env.close()
     
-    # Create dataframe and save to CSV
-    results_df = pd.DataFrame(results)
-    os.makedirs(f"{log_dir}/ppo", exist_ok=True)
-    results_df.to_csv(f"{log_dir}/ppo/evaluation_results.csv", index=False)
+    # Save results
+    if log_dir:
+        import pandas as pd
+        results_df = pd.DataFrame(results).T
+        results_df.to_csv(f"{log_dir}/evaluation_results.csv")
+        
+        # Plot results
+        plot_evaluation_results(results, log_dir)
     
-    print("Evaluation results:")
-    print(results_df)
-    
-    return results_df
+    return results
 
 
-def get_cooperation_rates(model, env, n_episodes=20):
-    """
-    Calculate cooperation rates for agent and opponent
-    
-    Args:
-        model: Trained model
-        env: Environment to evaluate in
-        n_episodes: Number of episodes to evaluate
-        
-    Returns:
-        Dictionary with cooperation rates
-    """
-    agent_actions = []
-    opponent_actions = []
+def get_cooperation_rate(model: PPO, env, n_episodes: int = 10) -> float:
+    """Calculate cooperation rate of the model"""
+    cooperation_count = 0
+    total_actions = 0
     
     for _ in range(n_episodes):
-        obs, _ = env.reset()  # Unpack observation and info
+        obs = env.reset()
         done = False
         
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, _, terminated, truncated, info = env.step(action)  # Updated step API
-            done = terminated or truncated
+            obs, reward, done, info = env.step(action)
             
-            agent_actions.append(info["player_action"])
-            opponent_actions.append(info["opponent_action"])
+            # Action 0 = Cooperate, Action 1 = Defect
+            if action[0] == 0:
+                cooperation_count += 1
+            total_actions += 1
     
-    agent_coop_rate = agent_actions.count(0) / len(agent_actions)
-    opponent_coop_rate = opponent_actions.count(0) / len(opponent_actions)
-    
-    return {
-        "agent": agent_coop_rate,
-        "opponent": opponent_coop_rate
-    }
+    return cooperation_count / total_actions if total_actions > 0 else 0.0
 
 
-def plot_results(log_dir=None, opponent_strategy="tit_for_tat"):
-    """
-    Plot the training results
+def plot_evaluation_results(results: Dict, log_dir: str):
+    """Plot evaluation results"""
+    strategies = list(results.keys())
+    rewards = [results[s]['mean_reward'] for s in strategies]
+    reward_stds = [results[s]['std_reward'] for s in strategies]
+    coop_rates = [results[s]['cooperation_rate'] for s in strategies]
     
-    Args:
-        log_dir: Directory with logs
-        opponent_strategy: Opponent strategy used in training
-    """
-    # Get repo root and set default path if not provided
-    if log_dir is None:
-        repo_root = Path(__file__).resolve().parents[2]
-        log_dir = repo_root / "results"
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
-    # Find monitor files
-    monitor_files = []
-    for dirpath, dirnames, filenames in os.walk(f"{log_dir}/ppo"):
-        for filename in filenames:
-            if filename.startswith("monitor.csv"):
-                monitor_files.append(os.path.join(dirpath, filename))
+    # Rewards plot
+    bars1 = ax1.bar(strategies, rewards, yerr=reward_stds, capsize=5, alpha=0.8)
+    ax1.set_ylabel('Mean Reward')
+    ax1.set_title('PPO Performance vs Different Opponents')
+    ax1.tick_params(axis='x', rotation=45)
+    ax1.grid(True, alpha=0.3)
     
-    if not monitor_files:
-        print("No monitor files found, skipping plotting")
-        return
+    # Add value labels on bars
+    for bar, reward in zip(bars1, rewards):
+        height = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                f'{reward:.2f}', ha='center', va='bottom')
     
-    # Use the most recent file for plotting
-    monitor_file = sorted(monitor_files, key=os.path.getmtime)[-1]
+    # Cooperation rates plot
+    bars2 = ax2.bar(strategies, coop_rates, alpha=0.8, color='green')
+    ax2.set_ylabel('Cooperation Rate')
+    ax2.set_title('PPO Cooperation Rate vs Different Opponents')
+    ax2.tick_params(axis='x', rotation=45)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim(0, 1)
     
-    # Load and process monitor data
-    monitor_data = pd.read_csv(monitor_file, skiprows=1)
+    # Add percentage labels on bars
+    for bar, rate in zip(bars2, coop_rates):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                f'{rate:.1%}', ha='center', va='bottom')
     
-    if monitor_data.empty:
-        print("Monitor data is empty, skipping plotting")
-        return
-    
-    # Extract relevant columns
-    rewards = monitor_data["r"]
-    timesteps = monitor_data["l"].cumsum()
-    episodes = np.arange(len(rewards))
-    
-    # Calculate rolling average
-    window = min(50, len(rewards))
-    if window > 0:
-        rolling_rewards = rewards.rolling(window=window).mean()
-    else:
-        rolling_rewards = rewards
-    
-    # Create plot and save data using helper function
-    save_plot_and_csv(
-        episodes.tolist(), 
-        rolling_rewards.tolist(), 
-        f"ppo_learning_curve_{opponent_strategy}",
-        folder=f"{log_dir}/ppo"
-    )
-    
-    # Also save raw rewards
-    save_plot_and_csv(
-        episodes.tolist(), 
-        rewards.tolist(), 
-        f"ppo_raw_rewards_{opponent_strategy}",
-        folder=f"{log_dir}/ppo"
-    )
-    
-    print(f"Learning curves saved to {log_dir}/ppo/")
+    plt.tight_layout()
+    plt.savefig(f"{log_dir}/ppo_evaluation.png", dpi=150, bbox_inches='tight')
+    plt.close()
 
 
 if __name__ == "__main__":
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Train a PPO agent for Iterated Prisoner's Dilemma")
+    parser = argparse.ArgumentParser(description="Train PPO agent for IPD")
     parser.add_argument("--timesteps", type=int, default=200000,
-                      help="Total training timesteps (default: 200000)")
-    parser.add_argument("--opponent", type=str, default="tit_for_tat",
-                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random", "pavlov", "grudger", "gtft"],
-                      help="Opponent strategy for training (default: tit_for_tat)")
+                        help="Total training timesteps (default: 200000)")
     parser.add_argument("--num_rounds", type=int, default=100,
-                      help="Number of rounds per episode (default: 100)")
-    parser.add_argument("--n_eval_episodes", type=int, default=20,
-                      help="Number of episodes for evaluation (default: 20)")
+                        help="Number of rounds per game (default: 100)")
+    parser.add_argument("--learning_rate", type=float, default=3e-4,
+                        help="Learning rate (default: 3e-4)")
     parser.add_argument("--seed", type=int, default=42,
-                      help="Random seed (default: 42)")
+                        help="Random seed (default: 42)")
+    parser.add_argument("--multi_opponent", action="store_true",
+                        help="Train against multiple opponents")
     
     args = parser.parse_args()
     
-    # Train agent
+    print("=== PPO Training for Iterated Prisoner's Dilemma ===")
+    
+    # Set up opponent strategies
+    if args.multi_opponent:
+        opponents = [
+            TitForTat(), AlwaysCooperate(), AlwaysDefect(), 
+            RandomStrategy(seed=args.seed), PavlovStrategy(),
+            GrudgerStrategy(), GTFTStrategy(seed=args.seed)
+        ]
+        model_name = "ppo_multi_opponent"
+    else:
+        opponents = [TitForTat()]  # Default opponent
+        model_name = "ppo_single_opponent"
+    
+    # Train model
     model = train_ppo_agent(
-        opponent_strategy=args.opponent,
+        opponent_strategies=opponents,
         total_timesteps=args.timesteps,
+        learning_rate=args.learning_rate,
         num_rounds=args.num_rounds,
         seed=args.seed,
-        n_eval_episodes=args.n_eval_episodes
-    ) 
+        model_name=model_name
+    )
+    
+    print("\n✅ PPO Training completed!")
+    print(f"🎯 Model trained for {args.timesteps:,} timesteps")
+    print(f"📊 Results saved in results/ppo/")
+    print(f"💾 Model saved in models/{model_name}") 

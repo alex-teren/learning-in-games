@@ -26,6 +26,7 @@ import sys
 import time
 import random
 import pickle
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -33,9 +34,26 @@ import numpy as np
 import pandas as pd
 import torch
 
-# -----------------------------------------------------------
+# %%
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Demo of Decision Transformer for Iterated Prisoner's Dilemma")
+parser.add_argument("--num_rounds", type=int, default=100,
+                    help="Number of rounds per episode (default: 100)")
+parser.add_argument("--num_matches", type=int, default=20,
+                    help="Number of matches per opponent for evaluation (default: 20)")
+parser.add_argument("--seed", type=int, default=42,
+                    help="Random seed (default: 42)")
+
+# Handle running in Jupyter vs as script
+try:
+    # When running as a script
+    args = parser.parse_args()
+except SystemExit:
+    # When running in Jupyter (no command line args)
+    args = parser.parse_args([])
+
+# %%
 # Locate repo root in both .py (jupytext) and .ipynb contexts
-# -----------------------------------------------------------
 try:                         # executed as .py file
     repo_root = Path(__file__).resolve().parents[1]
 except NameError:            # executed in a Jupyter kernel
@@ -59,9 +77,7 @@ from env import (
 models_dir = repo_root / "models"
 results_dir = repo_root / "results"
 
-# -----------------------------------------------------------
 # Helper: PNG + CSV saver
-# -----------------------------------------------------------
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
     """Save PNG and matching CSV so numbers stay inspectable."""
     import pandas as pd
@@ -198,7 +214,7 @@ class TransformerStrategy:
 # ## Loading the trained model (quick-demo fallback)
 
 # %%
-def quick_train_transformer(save_dir=models_dir, num_epochs=2, seed=42):
+def quick_train_transformer(save_dir=models_dir, num_epochs=2, seed=args.seed, num_rounds=args.num_rounds):
     """Quickly train a transformer for demo purposes."""
     print("Training a quick demo transformer model...")
     
@@ -208,12 +224,11 @@ def quick_train_transformer(save_dir=models_dir, num_epochs=2, seed=42):
     random.seed(seed)
     
     # Create environment and generate a small dataset
-    env = IPDEnv(num_rounds=10, seed=seed)
+    env = IPDEnv(num_rounds=num_rounds, seed=seed)
     
     # Generate a small dataset of trajectories
     num_games = 200
-    num_rounds = 10
-    strategies = [TitForTat(), AlwaysCooperate(), AlwaysDefect(), RandomStrategy(seed=seed)]
+    strategies = [TitForTat(), AlwaysCooperate(), AlwaysDefect(), RandomStrategy(seed=seed), PavlovStrategy()]
     
     trajectories = []
     
@@ -430,7 +445,7 @@ transformer_strategy = TransformerStrategy(model, model_params)
 # ## Evaluation against classic strategies
 
 # %%
-def play_match(strategy, opponent, num_rounds=100, seed=42):
+def play_match(strategy, opponent, num_rounds=args.num_rounds, seed=args.seed):
     env = IPDEnv(num_rounds=num_rounds, seed=seed)
     res = simulate_match(env, strategy, opponent, num_rounds)
     return dict(
@@ -445,15 +460,14 @@ opponents = {
     "tit_for_tat": TitForTat(),
     "always_cooperate": AlwaysCooperate(),
     "always_defect": AlwaysDefect(),
-    "random": RandomStrategy(seed=42),
+    "random": RandomStrategy(seed=args.seed),
     "pavlov": PavlovStrategy(),
 }
 
-num_matches, num_rounds = 5, 100
 results = {}
 
 for name, opp in opponents.items():
-    rows = [play_match(transformer_strategy, opp, num_rounds, seed=42 + i) for i in range(num_matches)]
+    rows = [play_match(transformer_strategy, opp, seed=args.seed + i) for i in range(args.num_matches)]
     results[name] = {
         "avg_player_score": np.mean([r["player_score"] for r in rows]),
         "avg_opponent_score": np.mean([r["opponent_score"] for r in rows]),

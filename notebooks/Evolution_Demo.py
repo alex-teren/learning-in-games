@@ -436,23 +436,33 @@ if comparison_available:
     plt.legend()
     plt.grid(True, alpha=0.3)
 
-# 4. Strategy parameters visualization
+# 4. Strategy parameters table
 plt.subplot(2, 3, 4)
-param_names = ['p_cc', 'p_cd', 'p_dc', 'p_dd', 'init']
-param_values = [evolved_strategy.p_cc, evolved_strategy.p_cd, evolved_strategy.p_dc, 
-                evolved_strategy.p_dd, evolved_strategy.initial_action_prob]
+plt.axis('off')
 
-bars = plt.bar(param_names, param_values, color='forestgreen', alpha=0.7)
-plt.ylabel("Probability")
+strategy_data = {
+    'Parameter': [
+        'p_cc (C after CC)', 
+        'p_cd (C after CD)', 
+        'p_dc (C after DC)', 
+        'p_dd (C after DD)', 
+        'Initial (C on 1st move)'
+    ],
+    'Value': [
+        f"{evolved_strategy.p_cc:.3f}",
+        f"{evolved_strategy.p_cd:.3f}",
+        f"{evolved_strategy.p_dc:.3f}",
+        f"{evolved_strategy.p_dd:.3f}",
+        f"{evolved_strategy.initial_action_prob:.3f}"
+    ]
+}
+
+table_data = list(zip(strategy_data['Parameter'], strategy_data['Value']))
+table = plt.table(cellText=table_data, cellLoc='left', loc='center')
+table.auto_set_font_size(False)
+table.set_fontsize(10)
+table.scale(1.2, 1.5)
 plt.title("Evolved Strategy Parameters")
-plt.ylim(0, 1)
-plt.grid(True, alpha=0.3)
-
-# Add value labels
-for bar, value in zip(bars, param_values):
-    height = bar.get_height()
-    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-             f'{value:.2f}', ha='center', va='bottom', fontsize=9)
 
 # 5. Strategy-specific analysis
 plt.subplot(2, 3, 5)

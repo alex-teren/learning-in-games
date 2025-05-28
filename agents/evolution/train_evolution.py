@@ -14,7 +14,7 @@ from datetime import timedelta
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, simulate_match
+from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, simulate_match
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -207,7 +207,8 @@ def run_cmaes_evolution(
             "tit_for_tat": TitForTat(),
             "always_cooperate": AlwaysCooperate(),
             "always_defect": AlwaysDefect(),
-            "random": RandomStrategy(seed=seed+100)
+            "random": RandomStrategy(seed=seed+100),
+            "pavlov": PavlovStrategy()
         }
     
     # Initialize CMA-ES optimizer
@@ -387,7 +388,7 @@ def evaluate_strategy(
     strategy: Strategy,
     opponent_strategies: Dict[str, Strategy],
     num_rounds: int = 100,
-    num_matches: int = 10,
+    num_matches: int = 20,
     seed: int = 42,
     log_dir: Optional[str] = None
 ) -> pd.DataFrame:
@@ -492,6 +493,8 @@ if __name__ == "__main__":
                         help="Population size for CMA-ES (default: 20)")
     parser.add_argument("--num_rounds", type=int, default=100,
                         help="Number of rounds per match in evaluation (default: 100)")
+    parser.add_argument("--num_matches", type=int, default=20,
+                        help="Number of matches per opponent for evaluation (default: 20)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     
@@ -513,7 +516,8 @@ if __name__ == "__main__":
         "tit_for_tat": TitForTat(),
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=args.seed)
+        "random": RandomStrategy(seed=args.seed),
+        "pavlov": PavlovStrategy()
     }
     
     # Evaluate the evolved strategy against different opponents
@@ -521,7 +525,7 @@ if __name__ == "__main__":
         best_strategy,
         opponent_strategies,
         num_rounds=args.num_rounds,
-        num_matches=20,
+        num_matches=args.num_matches,
         seed=args.seed
     )
     

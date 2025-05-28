@@ -425,20 +425,31 @@ evolution_history = load_and_plot_evolution_history()
 # %% [markdown]
 # ## Interpretation of Results
 #
-# * **Strong performance vs cooperative opponents.**  
-#   The strategy scores **~500** against Always Cooperate and demonstrates high performance with **~280-290** points against both Random and Pavlov.  
-# * **Balanced approach with Tit-for-Tat.**  
-#   Score of **~230** with TFT shows effective reciprocal cooperation with a cooperation rate of ~67%.  
-# * **Limited retaliation vs Always Defect.**  
-#   Average score ≈ 90 : 10 against AllD shows some punishment, but the agent is still largely
-#   exploited by an unconditional defector.  
-# * **Strategic defection patterns.**  
-#   Cooperation rate varies significantly by opponent: ~67% vs TFT, ~15% vs AllD, only ~12% vs Random (despite Random cooperating ~50%), and ~93% vs Pavlov.  
-# * **Evolution progress.**  
-#   Best fitness improved dramatically in later generations, rising from ~250 to **~285** over 50 generations, with a notable jump after generation 40. Average fitness remained more stable around ~250.  
-# * **Pavlov interactions.**  
-#   The evolved strategy achieves near-perfect cooperation with Pavlov (~93%), demonstrating remarkable compatibility with this Win-Stay, Lose-Shift strategy.
-# * **Future work.**  
-#   Increase exposure to defection-oriented opponents (AllD, Grim Trigger) or
-#   extend generations/population size to push fitness closer to the 300-point
-#   range versus mixed opponents while minimising losses to AllD.
+# * **Practical strategy against diverse opponents.**  
+#   The evolved strategy achieves good scores (~300) against cooperative opponents like TFT, AlwaysCooperate, and Pavlov, showing consistent mutual cooperation.
+# * **Defensive play against exploitative opponents.**  
+#   Against AlwaysDefect, the strategy keeps a very low cooperation rate (~1-2%), minimizing losses and achieving a reasonable score (~100).
+# * **Suitable response to random play.**  
+#   With RandomStrategy, the agent maintains good performance (~290) by adjusting its cooperation rate appropriately to the opponent's randomness.
+# * **Evolution progress shows learning capability.**  
+#   The fitness improved in early generations and stabilized around generation 15, with best fitness consistently above average fitness, showing gradual improvement.
+# * **Balance between defense and cooperation.**  
+#   Unlike PPO and transformer approaches that converged to unconditional cooperation, this evolutionary approach found a more robust, adaptive strategy that can both cooperate with friendly players and protect itself from exploitation.
+# * **Reasonable parameter selection through evolution.**  
+#   The evolution process adjusted the memory-one strategy parameters to achieve good performance across different opponents, showing how evolutionary algorithms can find practical strategies in game theory scenarios.
+
+# %% [markdown]
+# ## Інтерпретація результатів
+#
+# * **Практична стратегія проти різних опонентів.**  
+#   Еволюційна стратегія досягає хороших результатів (~300) проти кооперативних опонентів, як TFT, AlwaysCooperate та Pavlov, демонструючи стабільну взаємну кооперацію.
+# * **Захисна гра проти експлуататорів.**  
+#   Проти AlwaysDefect стратегія підтримує дуже низький рівень кооперації (~1-2%), зменшуючи втрати і досягаючи прийнятного рахунку (~100).
+# * **Відповідна реакція на випадкову гру.**  
+#   З RandomStrategy агент підтримує хорошу результативність (~290), пристосовуючи рівень кооперації до випадковості опонента.
+# * **Еволюційний прогрес показує здатність до навчання.**  
+#   Пристосованість покращилась у ранніх поколіннях і стабілізувалась близько 15-го покоління, з найкращою пристосованістю стабільно вище середньої, що свідчить про поступове покращення.
+# * **Баланс між захистом та кооперацією.**  
+#   На відміну від підходів PPO та трансформерів, які зійшлися до безумовної кооперації, цей еволюційний підхід знайшов більш надійну, адаптивну стратегію, яка може як співпрацювати з дружніми гравцями, так і захищатися від експлуатації.
+# * **Доцільний підбір параметрів через еволюцію.**  
+#   Еволюційний процес налаштував параметри стратегії з пам'яттю одного ходу для досягнення хороших результатів проти різних опонентів, демонструючи як еволюційні алгоритми можуть знаходити практичні стратегії в сценаріях теорії ігор.

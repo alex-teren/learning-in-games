@@ -19,7 +19,7 @@ import torch
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
-from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
+from env import IPDEnv, Strategy, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy, GrudgerStrategy, GTFTStrategy
 
 
 def run_training_approach(
@@ -341,7 +341,7 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
 def create_individual_plots(results: Dict, output_dir: str) -> None:
     """Create individual comparison plots"""
     
-    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov']
+    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov', 'Grudger', 'GTFT(p=0.1)']
     approaches = list(results.keys())
     
     # Performance heatmap
@@ -447,7 +447,7 @@ def print_summary(results: Dict, training_times: Dict) -> None:
     # Performance summary
     print("\n📊 Performance Summary:")
     
-    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov']
+    strategies = ['Tit-for-Tat', 'Always Cooperate', 'Always Defect', 'Random(p=0.5)', 'Pavlov', 'Grudger', 'GTFT(p=0.1)']
     
     for strategy in strategies:
         print(f"\n   vs {strategy}:")

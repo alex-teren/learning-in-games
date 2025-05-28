@@ -16,7 +16,7 @@ from datetime import timedelta
 # Add project root to path to allow imports from other directories
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy
+from env import IPDEnv, TitForTat, AlwaysCooperate, AlwaysDefect, RandomStrategy, PavlovStrategy
 
 
 def save_plot_and_csv(x, y, name: str, folder: str = "results"):
@@ -75,7 +75,7 @@ def train_ppo_agent(
     save_dir=None,
     log_dir=None,
     eval_freq=10000,
-    n_eval_episodes=50
+    n_eval_episodes=20
 ):
     """
     Train a PPO agent against a specific opponent
@@ -225,32 +225,23 @@ def evaluate_against_all_opponents(model, num_rounds=100, memory_size=3, seed=42
         "tit_for_tat": TitForTat(),
         "always_cooperate": AlwaysCooperate(),
         "always_defect": AlwaysDefect(),
-        "random": RandomStrategy(seed=seed+200)
+        "random": RandomStrategy(seed=seed+200),
+        "pavlov": PavlovStrategy()
     }
     
     # Create results dataframe
     results = []
     
     # Evaluate against each opponent
-    for opponent_name, opponent_strategy in opponent_strategies.items():
-        env = create_env(
-            opponent_strategy=opponent_strategy,
-            num_rounds=num_rounds,
-            memory_size=memory_size,
-            seed=seed+300,
-            monitor_dir=f"{log_dir}/ppo/eval_{opponent_name}"
-        )
+    for opponent_name, opponent in opponent_strategies.items():
+        # Create environment with current opponent
+        env = create_env(opponent_strategy=opponent_name, num_rounds=num_rounds, memory_size=memory_size, seed=seed+300)
         
-        # Run evaluation
-        mean_reward, std_reward = evaluate_policy(
-            model, 
-            env, 
-            n_eval_episodes=100,
-            deterministic=True
-        )
+        # Evaluate agent performance
+        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=20, deterministic=True)
         
         # Get cooperation rates
-        cooperation_rates = get_cooperation_rates(model, env, n_episodes=100)
+        cooperation_rates = get_cooperation_rates(model, env, n_episodes=20)
         
         # Store results
         results.append({
@@ -272,7 +263,7 @@ def evaluate_against_all_opponents(model, num_rounds=100, memory_size=3, seed=42
     return results_df
 
 
-def get_cooperation_rates(model, env, n_episodes=100):
+def get_cooperation_rates(model, env, n_episodes=20):
     """
     Calculate cooperation rates for agent and opponent
     
@@ -376,23 +367,25 @@ def plot_results(log_dir=None, opponent_strategy="tit_for_tat"):
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train a PPO agent for Iterated Prisoner's Dilemma")
-    parser.add_argument("--total_timesteps", type=int, default=200000, 
-                        help="Total number of timesteps for training (default: 200000)")
-    parser.add_argument("--opponent", type=str, default="tit_for_tat", 
-                        choices=["tit_for_tat", "always_cooperate", "always_defect", "random"],
-                        help="Opponent strategy for training (default: tit_for_tat)")
+    parser.add_argument("--timesteps", type=int, default=200000,
+                      help="Total training timesteps (default: 200000)")
+    parser.add_argument("--opponent", type=str, default="tit_for_tat",
+                      choices=["tit_for_tat", "always_cooperate", "always_defect", "random"],
+                      help="Opponent strategy for training (default: tit_for_tat)")
     parser.add_argument("--num_rounds", type=int, default=100,
-                        help="Number of rounds per episode (default: 100)")
+                      help="Number of rounds per episode (default: 100)")
+    parser.add_argument("--n_eval_episodes", type=int, default=20,
+                      help="Number of episodes for evaluation (default: 20)")
     parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed (default: 42)")
+                      help="Random seed (default: 42)")
     
     args = parser.parse_args()
     
-    # Train against specified opponent
+    # Train agent
     model = train_ppo_agent(
         opponent_strategy=args.opponent,
-        total_timesteps=args.total_timesteps,
+        total_timesteps=args.timesteps,
         num_rounds=args.num_rounds,
-        memory_size=3,
-        seed=args.seed
+        seed=args.seed,
+        n_eval_episodes=args.n_eval_episodes
     ) 

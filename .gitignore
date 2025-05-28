@@ -19,9 +19,9 @@ build/
 .ipynb_checkpoints
 
 # Models and Results
-models/*
+# models/*
 !models/.gitkeep
-results/*
+# results/*
 !results/.gitkeep
 
 # IDE specific files

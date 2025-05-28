@@ -241,22 +241,22 @@ load_curve()
 # %% [markdown]
 # ## Interpretation of Results
 #
-# * **Perfect cooperation strategy:** The PPO agent learned to always cooperate (100% cooperation rate) regardless of opponent strategy.
-# * **Optimal performance against cooperative opponents:** Against TFT, Always Cooperate, and Pavlov, the agent achieves the maximum possible score (~300), establishing mutual cooperation equilibrium.
-# * **Exploited by Always Defect:** The agent receives nearly zero reward against Always Defect, as its unconditional cooperation is fully exploited.
-# * **Suboptimal against Random:** The agent earns ~150 points against Random (which cooperates ~50% of the time), showing that while unconditional cooperation is not optimal against mixed strategies, it's still reasonably effective.
-# * **Learning progression:** The learning curve shows steady improvement from ~240 to ~295 reward over 2000 episodes, with key jumps around episodes 250 and 1000, indicating discovery of increasingly effective cooperation patterns.
-# * **Why this strategy emerged:** The agent was trained primarily against Tit-for-Tat, which rewards consistent cooperation. Since exploration in PPO gradually decreased during training, the agent locked into the local optimum of "always cooperate" against TFT and never discovered the need for conditional defection against exploitative opponents.
-# * **Evolutionary implication:** This demonstrates how environment shapes strategy - the agent optimized for its training environment (TFT) rather than developing a universally robust strategy that could handle defectors.
+# * **Consistent cooperation strategy:** The PPO agent learned to always cooperate (100% cooperation rate) regardless of opponent strategy.
+# * **Good results with cooperative opponents:** Against TFT, Always Cooperate, and Pavlov, the agent gets a high score (~300), creating a pattern of mutual cooperation.
+# * **Vulnerable to Always Defect:** The agent receives nearly zero reward against Always Defect, as its unconditional cooperation is completely exploited.
+# * **Mixed results against Random:** The agent earns ~150 points against Random (which cooperates ~50% of the time), showing that consistent cooperation has limitations against mixed strategies, but still provides reasonable rewards.
+# * **Learning progression:** The learning curve shows steady improvement from ~240 to ~295 reward over 2000 episodes, with notable changes around episodes 250 and 1000, indicating the agent found useful cooperation patterns.
+# * **Reason for this behavior:** The agent was trained primarily against Tit-for-Tat, which rewards consistent cooperation. As exploration in PPO decreased during training, the agent settled into the pattern of "always cooperate" against TFT and never developed a response to exploitative opponents.
+# * **Training environment impact:** This shows how the training environment shapes strategy - the agent adapted specifically to its training partner (TFT) rather than developing a versatile strategy that could respond to defectors.
 
 # %% [markdown]
 # ## Інтерпретація результатів
 #
-# * **Стратегія ідеальної кооперації:** PPO агент навчився завжди кооперувати (100% рівень кооперації) незалежно від стратегії опонента.
-# * **Оптимальна ефективність проти кооперативних опонентів:** Проти TFT, Always Cooperate і Pavlov агент досягає максимально можливої винагороди (~300), встановлюючи рівновагу взаємної кооперації.
-# * **Експлуатація з боку Always Defect:** Агент отримує майже нульову винагороду проти Always Defect, оскільки його безумовна кооперація повністю використовується опонентом.
-# * **Субоптимальність проти Random:** Агент заробляє ~150 балів проти Random (який кооперує ~50% часу), що показує, що безумовна кооперація не є оптимальною проти змішаних стратегій, але все ще досить ефективна.
-# * **Прогресія навчання:** Крива навчання показує стабільне покращення від ~240 до ~295 винагороди за 2000 епізодів, з ключовими стрибками близько 250-го та 1000-го епізодів, що вказує на відкриття все більш ефективних патернів кооперації.
-# * **Чому виникла саме така стратегія:** Агент тренувався переважно проти Tit-for-Tat, яка винагороджує послідовну кооперацію. Оскільки дослідження в PPO поступово зменшувалось під час тренування, агент зафіксувався на локальному оптимумі "завжди кооперувати" проти TFT і ніколи не відкрив необхідність умовної зради проти експлуататорських опонентів.
-# * **Еволюційне значення:** Це демонструє, як середовище формує стратегію - агент оптимізувався для свого тренувального середовища (TFT), а не розробив універсально надійну стратегію, яка могла б впоратися з дефекторами.
+# * **Стратегія постійної кооперації:** PPO агент навчився завжди кооперувати (100% рівень кооперації) незалежно від стратегії опонента.
+# * **Хороші результати з кооперативними опонентами:** Проти TFT, Always Cooperate і Pavlov агент отримує високу винагороду (~300), створюючи патерн взаємної кооперації.
+# * **Вразливість до Always Defect:** Агент отримує майже нульову винагороду проти Always Defect, оскільки його безумовна кооперація повністю використовується опонентом.
+# * **Змішані результати проти Random:** Агент заробляє ~150 балів проти Random (який кооперує ~50% часу), що показує, що постійна кооперація має обмеження проти змішаних стратегій, але все ще забезпечує прийнятну винагороду.
+# * **Прогресія навчання:** Крива навчання показує поступове покращення від ~240 до ~295 винагороди за 2000 епізодів, з помітними змінами близько 250-го та 1000-го епізодів, що вказує на те, що агент знайшов корисні патерни кооперації.
+# * **Причина такої поведінки:** Агент тренувався переважно проти Tit-for-Tat, яка винагороджує постійну кооперацію. Оскільки дослідження в PPO зменшувалось під час тренування, агент закріпився на патерні "завжди кооперувати" проти TFT і ніколи не розвинув відповідь на експлуататорських опонентів.
+# * **Вплив тренувального середовища:** Це показує, як тренувальне середовище формує стратегію - агент адаптувався саме до свого тренувального партнера (TFT), а не розробив різнобічну стратегію, яка могла б реагувати на дефекторів.
 

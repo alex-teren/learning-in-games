@@ -1,4 +1,4 @@
-# Learning in Games: IPD Strategy Optimization
+# Learning in Iterated Prisoner's Dilemma
 
 A comprehensive comparison of three computational approaches for learning optimal strategies in the Iterated Prisoner's Dilemma (IPD):
 
@@ -19,7 +19,7 @@ This project implements and compares three distinct machine learning paradigms f
 ## 🏗️ Project Structure
 
 ```
-learning-in-games/
+learning-in-ipd/
 ├── 🤖 agents/                        # Core learning algorithms
 │   ├── ppo/
 │   │   ├── train_ppo.py             # PPO training with enhanced environment
@@ -65,7 +65,7 @@ learning-in-games/
 ```bash
 # Clone repository
 git clone <repository-url>
-cd learning-in-games
+cd learning-in-ipd
 
 # Create virtual environment
 python -m venv venv

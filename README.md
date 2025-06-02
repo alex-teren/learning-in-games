@@ -1,4 +1,4 @@
-# Learning in Iterated Prisoner's Dilemma
+# Learning in the Iterated Prisoner's Dilemma
 
 A comprehensive comparison of three computational approaches for learning optimal strategies in the Iterated Prisoner's Dilemma (IPD):
 

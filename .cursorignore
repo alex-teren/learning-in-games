@@ -2,8 +2,8 @@
 *.ipynb
 
 # Ignore image files - they are generated during training and visualization
-*.png
-*.jpg
+# *.png
+# *.jpg
 
 # Ignore PyTorch model files - they contain trained model weights
 *.pt

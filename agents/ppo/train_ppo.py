@@ -488,7 +488,7 @@ def plot_evaluation_results(results: Dict, log_dir: str):
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 12))
     
     # Rewards plot
-    bars1 = ax1.bar(strategies, rewards, yerr=reward_stds, capsize=5, alpha=0.8, color='blue')
+    bars1 = ax1.bar(strategies, rewards, capsize=5, alpha=0.8, color='blue')
     ax1.set_ylabel('Mean Reward')
     ax1.set_title('PPO: Performance vs Different Opponents')
     ax1.tick_params(axis='x', rotation=45)

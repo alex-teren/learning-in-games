@@ -246,7 +246,7 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
             if score > 0:
                 height = bar.get_height()
                 ax1.text(bar.get_x() + bar.get_width()/2., height + 0.5,
-                        f'{score:.1f}', ha='center', va='bottom', fontsize=8)
+                        f'{score:.0f}', ha='center', va='bottom', fontsize=8)
     
     ax1.set_xlabel('Opponent Strategy')
     ax1.set_ylabel('Mean Score')
@@ -290,7 +290,7 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
             ax3.fill(angles, values, alpha=0.1, color=colors[i % len(colors)])
         
         ax3.set_xticks(angles[:-1])
-        ax3.set_xticklabels(strategies)
+        ax3.set_xticklabels(strategies, rotation=45, ha='right')
         ax3.set_title('Performance Radar Chart')
         ax3.legend()
         ax3.grid(True)

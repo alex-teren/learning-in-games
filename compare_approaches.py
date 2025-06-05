@@ -230,6 +230,16 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
     # Create comprehensive comparison plot
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
     
+    # Adjust spacing between subplots
+    plt.subplots_adjust(
+        left = 0,        # left margin
+        bottom = 0,      # bottom margin  
+        right = 1,       # right margin (reduced from 0.95 to 0.8 to increase right padding by 4x)
+        top = 1,         # top margin
+        wspace = 0.17,   # width spacing between subplots (increased from 0.12 to 0.6, 5x larger)
+        hspace = 0.5     # height spacing between subplots (reduced from 1.2 to 0.4, 3x smaller)
+    )
+    
     # 1. Performance comparison (bar plot)
     x = np.arange(len(strategies))
     width = 0.25
@@ -328,7 +338,7 @@ def create_comparison_plots(results: Dict, output_dir: str) -> None:
         table.scale(1.2, 1.5)
         ax4.set_title('Summary Statistics')
     
-    plt.tight_layout()
+    # plt.tight_layout()  # Commented out to preserve custom spacing
     plt.savefig(f"{output_dir}/comprehensive_comparison.png", dpi=300, bbox_inches='tight')
     plt.close()
     

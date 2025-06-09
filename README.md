@@ -20,7 +20,7 @@ This project implements and compares three distinct machine learning paradigms f
 
 ```
 learning-in-ipd/
-├── 🤖 agents/                        # Core learning algorithms
+├── 🤖 agents/                       # Core learning algorithms
 │   ├── ppo/
 │   │   ├── train_ppo.py             # PPO training with enhanced environment
 │   │   └── __init__.py
@@ -30,7 +30,7 @@ learning-in-ipd/
 │   └── transformer/
 │       ├── train_transformer.py     # Decision Transformer training
 │       └── __init__.py
-├── 📊 notebooks/                     # Interactive demonstrations
+├── 📊 notebooks/                    # Interactive demonstrations
 │   ├── PPO_Demo.py                  # PPO strategy analysis & visualization
 │   ├── Evolution_Demo.py            # Evolution strategy analysis & visualization
 │   └── Transformer_Demo.py          # Transformer strategy analysis & visualization
@@ -42,17 +42,17 @@ learning-in-ipd/
 │   ├── ppo/                         # PPO results & visualizations
 │   ├── evolution/                   # Evolution results & visualizations
 │   └── transformer/                 # Transformer results & visualizations
-├── 🔬 comparison_results/            # Cross-approach comparisons
+├── 🔬 comparison_results/           # Cross-approach comparisons
 │   ├── comprehensive_results.csv    # Complete performance comparison
 │   ├── scores_comparison.csv        # Score analysis by opponent
 │   ├── cooperation_comparison.csv   # Cooperation behavior analysis
 │   └── summary_statistics.csv       # Overall performance summary
 ├── 💾 models/                       # Trained models
-│   ├── ppo_ipd.zip                 # Trained PPO agent
+│   ├── ppo_ipd.zip                  # Trained PPO agent
 │   └── evolved_strategy.pkl         # Evolved memory-one strategy
 ├── 📋 analysis/                     # Comprehensive analysis
-│   ├── FINAL_ANALYSIS.md           # English comparative analysis
-│   └── FINAL_ANALYSIS_UA.md        # Ukrainian comparative analysis
+│   ├── FINAL_ANALYSIS.md            # English comparative analysis
+│   └── FINAL_ANALYSIS_UA.md         # Ukrainian comparative analysis
 ├── ⚙️ compare_approaches.py         # Unified comparison framework
 ├── 🔧 check_parameters.py           # Parameter validation utility
 ├── 📦 requirements.txt              # Python dependencies
